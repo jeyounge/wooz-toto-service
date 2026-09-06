@@ -24,4 +24,5 @@ export const TABLES = {
   ticketResults: t('ticket_results'),
   kpiLog: t('kpi_log'),
   calibration: t('calibration'),
+  teams: t('teams'),
 };

@@ -1,22 +1,36 @@
 'use server';
 import { revalidatePath } from 'next/cache';
 import { getCurrentUser, isAdmin } from '@/lib/auth';
+import { scrapeRound } from '@/lib/scraper/betinfo';
+import { ingestRound } from '@/lib/scraper/ingest';
 
 /**
- * 관리자 데이터 갱신 액션 (서버). 인증 재확인 후 수집 트리거.
- * ⚠️ 실제 betinfo 스크래퍼는 3단계에서 이 함수에 연결한다.
- * @param {'round'|'votes'|'results'} kind
+ * 관리자 회차 수집: betinfo 스크래핑 → DB upsert.
+ * 대진·투표율·결과를 한 번에 수집(회차 페이지에 다 있음).
+ * @param {string} totoRoundStr 예: '2026050'
  */
-export async function refreshData(kind) {
+export async function scrapeAndIngest(totoRoundStr) {
   const user = await getCurrentUser();
   if (!isAdmin(user)) return { ok: false, message: '권한 없음' };
 
-  // TODO(3단계): kind 별 수집 파이프라인
-  //  - round:   신규 회차 대진 수집 → wooz_toto_rounds/matches
-  //  - votes:   투표율 스냅샷 수집 → wooz_toto_votes
-  //  - results: 경기 결과 수집   → wooz_toto_results
-  // service_role(createAdminClient)로 서버에서만 수행.
+  const totoRound = parseInt(String(totoRoundStr).trim(), 10);
+  if (!/^\d{7}$/.test(String(totoRound))) {
+    return { ok: false, message: '회차 형식 오류 — 7자리 코드로 입력 (예: 2026050)' };
+  }
 
-  revalidatePath('/');
-  return { ok: true, message: `[${kind}] 인증·경로 정상. 수집 로직은 스크래퍼(3단계)에서 연결됩니다.` };
+  try {
+    const rows = await scrapeRound(totoRound);
+    if (!rows.length) {
+      return { ok: false, message: `${totoRound}: 경기 없음 (아직 미편성이거나 회차코드 확인)` };
+    }
+    const stat = await ingestRound(totoRound, rows);
+    revalidatePath('/');
+    revalidatePath(`/rounds`);
+    return {
+      ok: true,
+      message: `${totoRound} 수집 완료 — 대진 ${stat.matches} · 투표율 ${stat.votes} · 결과 ${stat.results} (vote=0 제외)`,
+    };
+  } catch (e) {
+    return { ok: false, message: `수집 실패: ${e.message}` };
+  }
 }

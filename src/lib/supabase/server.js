@@ -30,17 +30,5 @@ export async function createClient() {
   );
 }
 
-/**
- * 서버 전용 관리자 클라이언트 (service_role).
- * ⚠️ 크론/시드/스크래퍼 등 서버 전용 경로에서만 사용. 클라이언트 노출 절대 금지.
- * RLS를 우회하므로 admin write(수집 파이프라인)에 사용.
- */
-export function createAdminClient() {
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_ROLE_KEY,
-    {
-      cookies: { getAll() { return []; }, setAll() {} },
-    }
-  );
-}
+// 관리자(service_role) 클라이언트는 next/headers 비의존 위해 별도 모듈로 분리:
+//   import { createAdminClient } from './admin.js'
