@@ -1,0 +1,14 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-paper text-ink font-sans;
+  }
+  /* 숫자/라벨은 항상 tabular-nums (디자인 토큰 규칙) */
+  .font-mono,
+  [class*="tabular"] {
+    font-variant-numeric: tabular-nums;
+  }
+}

@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="ko"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>승무패 인사이트 · 50회차 (EPL 3R · 세리에A 3R · 이월누적)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+:root{--paper:#F5F4EF;--card:#FCFBF8;--ink:#16130F;--sub:#6B665C;--line:#E2DFD6;--pine:#0F5C4A;--home:#2A78D6;--draw:#C98500;--away:#D85A30}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--paper);color:var(--ink);font-family:'Inter',system-ui,sans-serif;line-height:1.5;padding:32px 20px 80px}
+.wrap{max-width:1080px;margin:0 auto}
+.num{font-family:'JetBrains Mono',monospace;font-variant-numeric:tabular-nums}
+.eyebrow{font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--pine);font-weight:700}
+h1{font-family:'Space Grotesk',sans-serif;font-size:38px;font-weight:700;letter-spacing:-.02em;margin:8px 0 6px;line-height:1.05}
+.lead{color:var(--sub);font-size:15px;max-width:760px}
+h2{font-family:'Space Grotesk',sans-serif;font-size:20px;font-weight:500;margin:0 0 4px}
+.sec{margin-top:40px}.sec>.desc{color:var(--sub);font-size:14px;margin-bottom:18px;max-width:820px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-top:22px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px}
+.card .k{font-size:12px;color:var(--sub);font-weight:500;margin-bottom:8px}
+.card .v{font-family:'Space Grotesk',sans-serif;font-size:28px;font-weight:700;line-height:1}
+.card .s{font-size:12px;color:var(--sub);margin-top:6px}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px}
+.legend{display:flex;flex-wrap:wrap;gap:16px;font-size:12px;color:var(--sub);margin-bottom:14px}
+.legend span{display:flex;align-items:center;gap:5px}.swatch{width:11px;height:11px;border-radius:3px}
+.chartbox{position:relative;width:100%;height:320px}
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--sub);font-weight:600}
+td.n,th.n{text-align:right;font-family:'JetBrains Mono',monospace;font-variant-numeric:tabular-nums}
+.tag{font-family:'JetBrains Mono',monospace;font-weight:700;font-size:12px;padding:2px 7px;border-radius:6px;display:inline-block}
+.t-h{background:#E6F1FB;color:#0C447C}.t-d{background:#FAEEDA;color:#633806}.t-a{background:#FAECE7;color:#712B13}
+.lgtag{font-family:'JetBrains Mono';font-size:10px;font-weight:700;padding:1px 6px;border-radius:5px;letter-spacing:.04em}
+.lg-e{background:#EAF0EE;color:#0F5C4A}.lg-s{background:#F0EAF3;color:#5B2A72}
+.marks{display:flex;gap:3px;flex-wrap:wrap}
+.bar{height:7px;border-radius:4px;display:inline-block;vertical-align:middle}
+.barwrap{display:flex;height:7px;width:92px;border-radius:4px;overflow:hidden;border:1px solid var(--line)}
+.scroll{max-height:none;overflow:auto;border:1px solid var(--line);border-radius:12px}
+.foot{margin-top:52px;padding-top:20px;border-top:1px solid var(--line);color:var(--sub);font-size:12.5px}
+.hi{color:var(--away);font-weight:600}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+.tk{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin:18px 0 8px}
+.tkc{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;border-top:4px solid}
+.tkc .tag2{font-family:'JetBrains Mono';font-size:11px;font-weight:700;letter-spacing:.1em}
+.tkc h3{font-family:'Space Grotesk';font-size:20px;font-weight:700;margin:6px 0 2px}
+.tkc .cb{font-family:'JetBrains Mono';font-size:13px;color:var(--sub);margin-bottom:10px}
+.tkc p{font-size:12.5px;color:var(--sub);line-height:1.55}
+.mcard{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px;border-left:4px solid var(--line)}
+.mcard h3{font-family:'Space Grotesk';font-size:16px;font-weight:700;margin:0 0 2px;display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.mcard .meta{font-size:11.5px;color:var(--sub);font-family:'JetBrains Mono';margin-bottom:8px}
+.mcard .form{font-size:12.5px;margin:6px 0;color:var(--ink)}
+.mcard .rz{font-size:12.5px;color:var(--sub);line-height:1.55;margin-top:6px}
+.callout{background:linear-gradient(180deg,#FBF6F2,#FCFBF8);border:1px solid var(--away);border-radius:14px;padding:16px 20px;margin-top:16px}
+.callout b{color:var(--away)}
+.calloutg{background:linear-gradient(180deg,#F1F7F4,#FCFBF8);border:1px solid var(--pine);border-radius:14px;padding:16px 20px;margin-top:16px}
+.calloutg b{color:var(--pine)}
+.simgrid{display:grid;grid-template-columns:1.5fr 1fr;gap:20px}
+.simrow{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line)}
+.simrow .nm{flex:1;font-size:12.5px}
+.mbtn{font-family:'JetBrains Mono';font-weight:700;font-size:12px;width:30px;height:28px;border:1px solid var(--line);border-radius:7px;background:var(--paper);color:var(--sub);cursor:pointer}
+.mbtn.on-h{background:var(--home);color:#fff;border-color:var(--home)}.mbtn.on-d{background:var(--draw);color:#fff;border-color:var(--draw)}.mbtn.on-a{background:var(--away);color:#fff;border-color:var(--away)}
+.simout{background:var(--card);border:1px solid var(--pine);border-radius:14px;padding:20px;position:sticky;top:20px;height:fit-content}
+.simout .big{font-family:'Space Grotesk';font-size:32px;font-weight:700;line-height:1}
+.simout .row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line);font-size:14px}
+.warn{color:var(--away);font-weight:600;font-size:12.5px;margin-top:10px}
+.tabnav{display:flex;gap:6px;margin:24px 0 4px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.tabbtn{font-family:'Space Grotesk',sans-serif;font-size:15px;font-weight:600;padding:10px 16px;border:0;background:none;color:var(--sub);cursor:pointer;border-bottom:2.5px solid transparent;margin-bottom:-1px}
+.tabbtn.on{color:var(--pine);border-bottom-color:var(--pine)}
+.pane{display:none}.pane.active{display:block}
+.reszone{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px;margin:16px 0}
+.resbtn{font-family:'JetBrains Mono';font-weight:700;font-size:11px;width:26px;height:24px;border:1px solid var(--line);border-radius:5px;background:var(--paper);color:var(--sub);cursor:pointer;margin:0 1px}
+.resbtn.sel-h{background:var(--home);color:#fff;border-color:var(--home)}
+.resbtn.sel-d{background:var(--draw);color:#fff;border-color:var(--draw)}
+.resbtn.sel-a{background:var(--away);color:#fff;border-color:var(--away)}
+.hit-o{color:#0F5C4A;font-weight:700}.hit-x{color:#C7C3B8;text-decoration:line-through}
+.mkcell{text-align:center}
+.pill{display:inline-block;font-size:11px;font-weight:600;padding:1px 8px;border-radius:20px;background:#EDEBE4;color:var(--sub)}
+.pill.roll{background:#FBEFD9;color:#8a5a00}
+ul.tight{margin:6px 0 0 18px}ul.tight li{margin:4px 0;font-size:13px;color:var(--sub);line-height:1.5}
+@media(max-width:760px){.two,.tk,.simgrid{grid-template-columns:1fr}h1{font-size:28px}}
+</style></head>
+<body><div class="wrap">
+
+<div class="eyebrow">축구토토 승무패 · 2026 · 50회차</div>
+<h1>50회차 인사이트 <span class="pill roll">이월 누적 회차</span></h1>
+<p class="lead">EPL 3R 8경기 + 세리에A 3R 6경기 혼합 슬레이트. 경기 9/5(토)~9/7(월). <b>투표율 최종: betinfo 9/5 기준, 총 1,089,242표(9/4比 2.5배)</b>. 모델확률은 <b>자체 17년치 데이터(2010~2026, 11,834경기)로 뽑은 favorite-longshot 캘리브레이션</b>을 실측 투표율에 적용한 값(라이브 배당 부재 대체). 48회차 교훈(붕괴팀 홈정배 금지·2nd 3%p 이내 단식 승격)과 이월 컨트래리언(규칙4)을 반영. ⚠️ 이 슬레이트는 <b>확실 앵커가 맨시티 1개뿐</b>이고 코인·무매그넷이 6~7개라 32조합이 빡빡함 — 64조합/위성 병행 권장(§3·§4). <b>※ 9/5(경기당일) 팀뉴스 반영</b>: ⑦헐-빌라 방향 수정(빌라 19위 3연패 → 헐 백), ⑧로마 H2H 8연속 무승 경고, ⑥나폴리 맥토미니 결장. <b>betinfo 9/5 최종 투표율 반영</b>(총 1,089,242표). 9/4比 비율 변화 ±2%p 이내라 마킹 불변.</p>
+
+<div class="tabnav">
+  <button class="tabbtn on" data-pane="p1">🎯 대진 · 마킹</button>
+  <button class="tabbtn" data-pane="p2">🔬 경기별 분석</button>
+  <button class="tabbtn" data-pane="p3">🎫 티켓 · 조합수학</button>
+  <button class="tabbtn" data-pane="p4">📋 방법론 · 규칙적용</button>
+</div>
+
+<!-- ============ TAB 1 ============ -->
+<div id="p1" class="pane active">
+  <div class="cards" id="cards1"></div>
+
+  <div class="reszone">
+    <div style="font-size:13px;font-weight:600;margin-bottom:4px">🔴 실시간 적중 추적 (메인 32조합 · 위성 8조합)</div>
+    <div style="font-size:12px;color:var(--sub);margin-bottom:10px">경기가 끝날 때마다 결과(승/무/패)를 누르세요. 마킹에 맞으면 ○, 틀리면 <span style="text-decoration:line-through;color:#C7C3B8">취소선</span>. 틀린 개수와 잠정 등수(0틀림=1등…3틀림=4등)가 실시간 계산됩니다. <button id="resetTrack" class="resbtn" style="width:auto;padding:0 8px">초기화</button></div>
+    <div id="trackStatus"></div>
+  </div>
+
+  <div class="panel" style="padding:0"><div class="scroll" style="border:0"><table id="mainTbl"></table></div></div>
+  <p class="desc" style="margin-top:12px">★ = 앵커(단식 고정, 클래스 격차 뚜렷) · ◆ = 스윙/헤지(더블) · 막대 = <span style="color:var(--home)">승</span>/<span style="color:var(--draw)">무</span>/<span style="color:var(--away)">패</span>. 크라우드=한국 투표율(betinfo 실측), 모델=엑셀 캘리브레이션.</p>
+
+  <div class="sec"><h2 style="font-size:16px">크라우드 vs 모델 — 홈승 확률 괴리 (favorite-longshot)</h2>
+  <p class="desc">막대가 크라우드(투표율) &gt; 모델이면 대중이 홈을 과대평가 — 페이드 후보 신호. 이번 회차 최대 과열: <span class="hi">①브렌트포드(75→58, +17.2)</span>·⑫아스날(70→55)·④맨시티(94→80)·⑥인테르(69→55)·⑩프로시노네(63→50)·⑧로마(62→50). ⑨에버턴·⑦헐은 크라우드가 홈을 <b>과소</b>(각 22→27, 35→40).</p>
+  <div class="panel"><div class="chartbox"><canvas id="divChart"></canvas></div></div></div>
+</div>
+
+<!-- ============ TAB 2 ============ -->
+<div id="p2" class="pane">
+  <p class="desc" style="margin-top:18px">최근폼 = 3R 직전 2경기(EPL MW1·2 / 세리에A MD1·2) 실제 결과. 각 카드 테두리색 = 마킹 방향(<span style="color:var(--home)">승</span>/<span style="color:var(--draw)">무</span>/<span style="color:var(--away)">패</span>/회색=더블).</p>
+  <div id="matchCards" style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:8px"></div>
+
+  <div class="callout"><b>✅ 패 커버 룰 반영 — 원정 3경기로 확대.</b> 엑셀 807개 14경기 회차 검증: <b>패(원정승) 1개 이하 회차는 4.0%뿐</b>(0개 0.9%+1개 3.1%), <b>96%가 패 2개 이상</b>(중앙값 4·평균 4.36). 따라서 패 커버 1개 티켓은 커버리지만으로 96% 탈락 — 이번 회차 <b>⑦(승·패)·⑨(무·패)·⑪(무·패)로 원정 3경기 커버</b>. 커버 = 홈 10 / 무 6 / 패 3. 중앙값(4)보다는 아직 낮아 위성이 무·원정 폭발(5+)을 계속 헤지.</div>
+</div>
+
+<!-- ============ TAB 3 ============ -->
+<div id="p3" class="pane">
+  <div class="tk" id="ticketCards"></div>
+
+  <div class="sec"><h2 style="font-size:16px">조합 구조 수학</h2>
+  <p class="desc">조합수 = 각 경기 마킹 수의 곱 = 2^(더블 개수). <b>메인 32 = 2⁵ → 9단식 + 5더블</b>(더블 ⑨⑪⑫⑬⑭). 앵커가 맨시티 하나뿐이라 코인 6~7개를 5더블에 다 못 담아 <b>③풀럼(무)·⑦헐(패)을 코인 희생 단식</b>으로 처리했습니다. 아래 시뮬레이터에서 ①⑥ 등을 더블로 눌러 <b>64조합(6더블)</b>도 즉석 비교 — 이월 누적 회차라 64 권장. 등수확률은 각 경기 커버확률 qₘ에 Poisson-binomial 전개(G0=1등, G0..G3=4등내).</p>
+  <div class="panel" style="margin-bottom:16px"><table id="rankTbl"></table></div></div>
+
+  <div class="sec"><h2 style="font-size:16px">인터랙티브 시뮬레이터</h2>
+  <p class="desc">버튼으로 마킹을 바꾸면 조합수·등수 확률이 실시간 재계산됩니다. 숫자 = 모델 승/무/패 확률(%). 기본값 = 메인(32조합). ③⑦을 더블로 넓히거나 ①⑥을 더블로 바꿔 원정 커버를 늘리는 시나리오를 비교하세요.</p>
+  <div class="simgrid">
+    <div class="panel"><div id="simRows"></div>
+      <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap"><button id="loadMain" class="mbtn" style="width:auto;padding:0 12px">메인(32)</button><button id="loadSat" class="mbtn" style="width:auto;padding:0 12px">위성 8</button><span style="font-size:12px;color:var(--sub);align-self:center">버튼=마킹 토글</span></div>
+    </div>
+    <div class="simout">
+      <div class="big" id="oCombos">32</div><div style="font-size:12px;color:var(--sub);margin-bottom:14px">조합 · <span id="oCost"></span></div>
+      <div class="row"><span>1등 확률 (G0)</span><b class="num" id="oP1"></b></div>
+      <div class="row"><span>4등내 누적 (≤3틀림)</span><b class="num" id="oCum"></b></div>
+      <div class="row"><span>기대 틀림 개수</span><b class="num" id="oMiss"></b></div>
+      <div class="warn" id="oWarn"></div>
+    </div>
+  </div></div>
+</div>
+
+<!-- ============ TAB 4 ============ -->
+<div id="p4" class="pane">
+  <div class="sec" style="margin-top:22px"><h2>이번 회차에 적용한 규칙 (인수인계 최신판)</h2>
+  <div class="tk" id="ruleCards" style="grid-template-columns:1fr 1fr"></div></div>
+
+  <div class="calloutg"><b>48회차 거울 — 이번 슬레이트에 직결된 교훈 2개.</b> (1) <b>붕괴팀 홈 정배 금지</b>: 48회차 ④피오렌티나(개막 0-4→0-3 완패)를 "홈정배 60%"로 승·무 걸었다가 원정 3-0 참패. 이번엔 ⑬볼로냐(0-0-2 홈, 무득점)를 단식 승 금지 → 승·무 더블로만. (2) <b>2nd 결과 3%p 이내 단식 승격</b>: 48회차 ⑨리즈-브렌트포드(무가 원정과 2%p차) 단식이 무로 즉사. 이번엔 그런 자리를 명시적 더블 또는 코인 희생으로 표기.</div>
+
+  <div class="sec"><h2 style="font-size:16px">favorite-longshot 캘리브레이션 (엑셀 11,834경기)</h2>
+  <div class="panel"><table id="calTbl"></table></div>
+  <p class="desc" style="margin-top:10px">투표율 버킷별 <b>실제 적중률</b>. 대중이 &lt;10% 준 언더독은 실제 14.8% 적중(과소), 60~70% 정배는 52.1%만 적중(과신). 이 곡선으로 실측 투표율을 모델확률로 변환 → 3개 결과 재정규화.</p></div>
+
+  <div class="sec"><h2 style="font-size:16px">리그 베이스레이트 (엑셀 2010~2026)</h2>
+  <div class="panel"><table id="lgTbl"></table></div>
+  <p class="desc" style="margin-top:10px">2026은 <b>원정강세 이상치 연도</b>(원정승 35.1%, 홈승 급락). 홈 편중 티켓은 이 흐름에 취약 → 위성으로 원정·무 세계를 반드시 커버.</p></div>
+
+  <div class="sec"><h2 style="font-size:16px">마킹 sanity check</h2>
+  <div class="panel"><table id="sanityTbl"></table></div></div>
+
+  <div class="callout"><b>마감 전 체크리스트.</b> ① 확률은 <b>캘리브레이션 추정</b> — 마감 직전 BetMGM/sportsgambler 1X2 de-vig로 교체 권장. ② 투표율은 발매 중반(9/4) 값이라 <b>마감 직전 재수집</b>(고평가 정배 더 굳는지 확인). ③ 세리에A·EPL 일요/월요 킥오프는 라인업 재확인. ④ <b>앵커 1개뿐 + 원정강세 시즌</b> → 예산 여유 있으면 64조합(6더블)로 원정 커버 1~2개 추가.</div>
+</div>
+
+<div class="foot">개인 분석·기록용. 데이터 출처: betinfo.co.kr(9/5 최종 투표율)·자체 엑셀 마스터(2010~2026, 11,834경기 캘리브레이션)·worldfootball/soccerway/legaseriea(대진·폼). 확률은 캘리브레이션 추정치이며 실제 배당·결과와 다를 수 있음. EPL/세리에A 팀명은 betinfo EUC-KR 깨짐을 투표율·킥오프·순위로 디코딩해 확정.</div>
+</div>
+
+<script>
+// idx 0=승(H) 1=무(D) 2=패(L)
+const M=[
+ {no:1,h:'브렌트포드',a:'선덜랜드',lg:'EPL',ko:'9/5 토 23:00',cr:[75.2,16.5,8.2],md:[58,24,18],mk:[0,1],tag:'◆',
+  hf:'🏠 3-0 vs 토트넘(개막 완승) · 1-1 @리즈',af:'✈️ 선덜랜드 1-2 @입스위치 · 1-0 vs 풀럼(홈 첫승)',
+  r:'승·무 더블(지정). 크라우드 75%는 과열(모델 58, 괴리 +17)이고 선덜랜드가 홈 첫승·클린시트로 수비 안정 반등 → 무(24) 헤지 정당. 최대괴리 자리라 이월 페이드 겸 헤지. ⑫ 더블 슬롯을 여기로 이동.'},
+ {no:2,h:'브라이턴',a:'리즈',lg:'EPL',ko:'9/5 토 23:00',cr:[58.6,26.3,15.1],md:[48,29,23],mk:[0],tag:'',
+  hf:'🏠 4-0 vs 빌라 · 3-4 @첼시(석패)',af:'✈️ 리즈 1-0 @포레스트 · 1-1 vs 브렌트포드',
+  r:'브라이턴 홈은 강하나 모델 50%로 코인 경계. 리즈 원정 나쁘지 않음(포레스트 원정승·브렌트포드 무). 승 단식이되 위성 무 헤지. 무(28)가 두꺼워 64조합이면 더블 후보.'},
+ {no:3,h:'풀럼',a:'크리스탈팰리스',lg:'EPL',ko:'9/5 토 23:00',cr:[38.9,37.4,23.7],md:[36,35,28],mk:[1],tag:'',
+  hf:'🏠 2-3 vs 첼시 · 0-1 @선덜랜드(2연패·최근 무득점)',af:'✈️ 팰리스 0-2 @에버턴 · 1-4 vs 시티(2연패)',
+  r:'둘 다 0-0-2 무승, 무매그넷(무 35~36%). 코인 희생 단식을 무로: 무 저평가 흡수(favorite-longshot) + 이월 차별화. 리스크: 어느 쪽이든 홈/원정으로 갈리면 미스(무 35% 커버). 위성은 승으로 반대.'},
+ {no:4,h:'맨체스터시티',a:'코번트리',lg:'EPL',ko:'9/5 토 23:00',cr:[94,3.7,2.4],md:[80,12,9],mk:[0],tag:'★',
+  hf:'🏠 2-1 vs 본머스 · 4-1 @팰리스(2연승)',af:'✈️ 코번트리 0-1 @헐시티(2연패·최하위권)',
+  r:'★유일한 하드앵커. 93% 몰표는 과열이나 de-bias 후에도 78%로 압도적 클래스 격차(시티 2연승 vs 승격팀 코번트리 무득점). 승 단식 고정. 48·46 앵커 전적(7/7) 신뢰.'},
+ {no:5,h:'노팅엄',a:'토트넘',lg:'EPL',ko:'9/5 토 23:00',cr:[50.9,22.1,26.9],md:[44,27,29],mk:[0],tag:'',
+  hf:'🏠 0-1 vs 리즈 · 2-2 vs 리버풀(무)',af:'✈️ 토트넘 0-3 vs 브렌트포드 · 0-2 @뉴캐슬(2연패·무득점 -5)',
+  r:'토트넘이 개막 2연속 완패·무득점(-5)으로 고장 → 원정에서 붕괴팀 페이드 = 포레스트 홈(45%) 단식. 48회차 교훈은 "붕괴팀 홈정배 금지"지 "붕괴팀 원정 페이드"는 정당. 리스크: 포레스트도 부진(0-1-1)이라 무(27) 나오면 미스.'},
+ {no:6,h:'인테르',a:'나폴리',lg:'세리에A',ko:'9/6 일 01:00',cr:[68.9,23.3,7.8],md:[55,28,17],mk:[0],tag:'',
+  hf:'🏠 4-1 vs 몬차(개막 완승) · 1-0 @칼리아리(2연승·2위)',af:'✈️ 나폴리 2-0 @제노아 · 1-2 vs 코모(홈 완패·맥토미니 ~1달 결장)',
+  r:'산시로 빅매치(디펜딩챔프 인테르 2연승 vs 나폴리). 모델 55/28/18. 나폴리 원정 8.1%는 극단 저평가(코모 홈 완패+맥토미니 이탈 반영이나 그래도 과소) — favorite-longshot 가치 플래그. 인테르 완벽 출발·홈이라 승 단식이되, 빅매치 무(28) 라이브 → 64조합이면 승·무 6번째 더블 1순위. 위성 무.'},
+ {no:7,h:'헐시티',a:'아스톤빌라',lg:'EPL',ko:'9/6 일 01:30',cr:[35.3,25.0,39.8],md:[40,28,32],mk:[0,2],tag:'◆',
+  hf:'🏠 2-0 vs 맨유 · 1-0 @코번트리(2연승·3위 돌풍)',af:'✈️ 빌라 0-4 @브라이턴 · 0-1 @아스날(무승 3연패·19위)',
+  r:'승·패 더블(무 25% 드롭). 3-way 코인에서 무가 최소(홈35/무25/원정40)라 양 끝 커버 = 헐 홈폼(3위·맨유 격파)과 빌라 원정 시장픽(19위지만 클래스·40% 몰표)을 동시에 잡아 폼vs시장 논쟁 회피. 동시에 원정 커버 확보(패 1개→3개 룰). 리스크는 1-1류 무(25%)뿐.'},
+ {no:8,h:'AS로마',a:'아탈란타',lg:'세리에A',ko:'9/6 일 03:45',cr:[62.1,22.4,15.5],md:[50,27,23],mk:[0],tag:'',
+  hf:'🏠 4-0 vs 피오렌티나 · 4-0 @레체(2연승 무실점)',af:'✈️ 아탈란타 1-0 vs 사수올로 · 1-0 @볼로냐(2연승)',
+  r:'둘 다 2-0-0 완벽 출발 빅매치(로마 8골 무실점 1위). 로마 홈(모델 50%) 근소 우위지만 ⚠로마가 최근 아탈란타전 <b>8경기 연속 무승</b>(직전 1-1)이라 H2H 경고 — 승 단식 리스크 상향. 아탈란타 원정(24)+무(26) 위험. 64조합이면 ⑦과 함께 승·무 첫 더블. 위성 무.'},
+ {no:9,h:'에버턴',a:'맨체스터U',lg:'EPL',ko:'9/6 일 22:00',cr:[22,29.3,48.7],md:[27,30,43],mk:[1,2],tag:'◆',
+  hf:'🏠 2-0 vs 팰리스 · 1-1 @본머스',af:'✈️ 맨유 0-2 @헐시티 · 5-2 vs 입스위치(기복)',
+  r:'유일하게 크라우드가 홈을 과소(22→27). 모델 원정(맨유 43)>무(30)>홈(27). 맨유 기복 크나 5-2 화력 → 무·패 더블로 무+맨유 커버, 에버턴 홈(27)만 포기. 이 티켓 원정 커버 2개 중 하나. 위성은 승(에버턴 홈 이변).'},
+ {no:10,h:'프로시노네',a:'베네치아',lg:'세리에A',ko:'9/6 일 22:00',cr:[62.8,20.6,16.6],md:[50,26,24],mk:[0],tag:'',
+  hf:'🏠 0-1 vs 유베 · 3-0 @피오렌티나(원정 완승·핫)',af:'✈️ 베네치아 0-2 vs 밀란(무승·최하위권)',
+  r:'프로시노네 홈(모델 52%)·최근 원정 3-0 완승으로 상승세, 베네치아 무승 최하위권. 승 단식 타당. 크라우드 65% 다소 과열이라 무(25) 소폭 리스크 인지. 위성 승 유지.'},
+ {no:11,h:'파르마',a:'몬차',lg:'세리에A',ko:'9/6 일 22:00',cr:[31.4,41.9,26.7],md:[32,39,30],mk:[1,2],tag:'◆',
+  hf:'🏠 0-1 vs 칼리아리 · 0-2 @유베(2연패·무득점)',af:'✈️ 몬차 1-4 @인테르 · 2-3 vs 우디네세(2연패)',
+  r:'무·패 더블로 전환(파르마 홈 32 드롭). 둘 다 0-0-2라 무매그넷(무 39)+몬차 원정(30)이 홈보다 무거움 → 무+원정 커버. 원정 커버 3개 중 하나(패 커버 룰 준수). 홈(파르마)만 포기.'},
+ {no:12,h:'아스날',a:'첼시',lg:'EPL',ko:'9/7 월 00:30',cr:[70.3,18.3,11.4],md:[55,25,20],mk:[0],tag:'',
+  hf:'🏠 2연승(수비 견고)',af:'✈️ 첼시 3-2 @풀럼 · 4-3 vs 브라이턴(2연승·수비 불안)',
+  r:'승 단식(지정). 아스날 2연승·2연속 클린시트, 첼시 상대 10경기 무패·홈 3연속 무패배, 첼시 18경기 클린시트 없음+엔조 이탈. 더블 후보 중 단식 신뢰 최고(55%)라 여기서 헤지를 떼 ①로 이동. ⚠트레이드오프: 런던더비 무(25%)는 숫자보다 잘 터지는 편.'},
+ {no:13,h:'볼로냐',a:'사수올로',lg:'세리에A',ko:'9/7 월 01:00',cr:[44.1,35.8,20.1],md:[40,34,26],mk:[0,1],tag:'◆',
+  hf:'🏠 0-1 vs 라치오 · 0-1 vs 아탈란타(2연패·무득점, 상대는 강팀)',af:'✈️ 사수올로 2-1 vs 토리노(반등)',
+  r:'⚠48회차 ④교훈 적용: 볼로냐 0-0-2 무득점 홈이라 <b>단식 승 금지</b>. 다만 2패가 라치오·아탈란타 강팀전이고 질은 사수올로 위 → 승·무 더블(홈+무 74%). 사수올로 원정(26) 포기. 무(33) 매그넷.'},
+ {no:14,h:'유벤투스',a:'AC밀란',lg:'세리에A',ko:'9/7 월 03:45',cr:[37.4,41.4,21.2],md:[35,38,27],mk:[1],tag:'',
+  hf:'🏠 1-0 @프로시노네 · 2-0 vs 파르마(2연승)',af:'✈️ AC밀란 2연승(호출발)',
+  r:'무 단식 전환(승무에서). 둘 다 2-0-0 빅매치 무매그넷 — 크라우드 무 41.4%·모델 38%가 모달. 32조합 유지 위한 단식 희생을 무 방향으로 = 컨트래리언 무 베팅. ⚠59% 미스라 이 티켓 최고 리스크 단식 — 64면 승·무 더블로 복원 1순위.'}
+];
+
+// 메인 마킹 = 각 M.mk / 위성 8조합(무·원정 편중 "다른 세계"):
+const SAT=[[1],[1],[0],[0],[1],[1],[2],[1],[0,1],[0],[1,2],[1,2],[2],[1]];
+const PB=M.map(m=>[m.md[0]/100,m.md[1]/100,m.md[2]/100]);
+const OC=['h','d','a'], OL=['승','무','패'], TC=['t-h','t-d','t-a'];
+const COST=100; // 원/조합
+
+// ---- Poisson-binomial 등수 계산 ----
+function tierExp(MK){let G=[1],combos=1;for(let m=0;m<14;m++){const S=MK[m];if(!S||!S.length)return null;const pr=PB[m],tot=pr[0]+pr[1]+pr[2];let q=0;S.forEach(k=>q+=pr[k]/tot);combos*=S.length;const ng=new Array(G.length+1).fill(0);for(let i=0;i<G.length;i++){ng[i]+=G[i]*q;ng[i+1]+=G[i]*(1-q)}G=ng}
+ const cum4=(G[0]||0)+(G[1]||0)+(G[2]||0)+(G[3]||0);let miss=0;for(let m=0;m<14;m++){const S=MK[m],pr=PB[m],tot=pr[0]+pr[1]+pr[2];let q=0;S.forEach(k=>q+=pr[k]/tot);miss+=1-q}
+ return{combos,p1:G[0],cum4,miss,G}}
+
+// ---- TAB1 cards ----
+function cards1(){
+ const main=tierExp(M.map(m=>m.mk));
+ const anchors=M.filter(m=>m.tag==='★').length;
+ let awayCover=0;M.forEach(m=>{if(m.mk.includes(2))awayCover++});
+ const nS=M.filter(m=>m.mk.length===1).length,nD=M.filter(m=>m.mk.length===2).length,combos=Math.pow(2,nD);
+ const c=[
+  ['리그 구성','EPL 8 · 세리에A 6','MW3 / MD3 혼합'],
+  ['메인 조합',String(combos),nS+'단식 + '+nD+'더블'],
+  ['1등 확률','—','아래 계산'],
+  ['앵커(★)',anchors+'개','맨시티 단독'],
+  ['패 커버',awayCover+'경기','⚠원정강세 시즌 취약'],
+  ['상태','이월누적','컨트래리언 정당화']
+ ];
+ c[2][1]=(main.p1*100).toFixed(3)+'%';
+ document.getElementById('cards1').innerHTML=c.map(x=>`<div class="card"><div class="k">${x[0]}</div><div class="v">${x[1]}</div><div class="s">${x[2]}</div></div>`).join('');
+}
+
+function bar3(p){const t=p[0]+p[1]+p[2];const w=x=>(x/t*100).toFixed(0);
+ return `<div class="barwrap" title="승 ${p[0]} / 무 ${p[1]} / 패 ${p[2]}"><span class="bar" style="width:${w(p[0])}%;background:var(--home)"></span><span class="bar" style="width:${w(p[1])}%;background:var(--draw)"></span><span class="bar" style="width:${w(p[2])}%;background:var(--away)"></span></div>`}
+function markCell(mk){return '<span class="marks">'+mk.map(k=>`<span class="tag ${TC[k]}">${OL[k]}</span>`).join('')+'</span>'}
+
+function mainTbl(){
+ let h=`<tr><th>#</th><th>경기</th><th>리그</th><th class="n">킥오프</th><th>크라우드 (승/무/패)</th><th>모델 (승/무/패)</th><th>마킹</th><th>추적</th></tr>`;
+ const rows=M.map((m,i)=>{
+  const lgc=m.lg==='EPL'?'lg-e':'lg-s';
+  const res=`<span id="rc${i}">`+[0,1,2].map(k=>`<button class="resbtn" data-m="${i}" data-k="${k}">${OL[k]}</button>`).join('')+`</span>`;
+  return `<tr>
+   <td class="n">${m.no}${m.tag?' <b style="color:var(--pine)">'+m.tag+'</b>':''}</td>
+   <td><b>${m.h}</b> <span style="color:var(--sub)">v</span> ${m.a}</td>
+   <td><span class="lgtag ${lgc}">${m.lg}</span></td>
+   <td class="n" style="font-size:11px">${m.ko.replace('9/','').replace(' ','<br>')}</td>
+   <td>${bar3(m.cr)} <span class="num" style="font-size:11px;color:var(--sub)">${m.cr.join('/')}</span></td>
+   <td>${bar3(m.md)} <span class="num" style="font-size:11px;color:var(--sub)">${m.md.join('/')}</span></td>
+   <td class="mkcell">${markCell(m.mk)}</td>
+   <td>${res}</td></tr>`}).join('');
+ document.getElementById('mainTbl').innerHTML=h+rows;
+}
+
+// ---- 실시간 추적 ----
+let RESULT=new Array(14).fill(null);
+function renderTrack(){
+ M.forEach((m,i)=>{const wrap=document.getElementById('rc'+i);if(!wrap)return;
+  wrap.querySelectorAll('.resbtn').forEach(b=>{const k=+b.dataset.k;b.className='resbtn'+(RESULT[i]===k?' sel-'+OC[k]:'')})});
+ function status(MK,label,combos){
+  let wrong=0,decided=0;
+  for(let i=0;i<14;i++){if(RESULT[i]===null)continue;decided++;const hit=MK[i].includes(RESULT[i]);if(!hit)wrong++;}
+  const rank=wrong===0?(decided===14?'🥇 1등 (0틀림)':'생존'):wrong+'틀림 → '+(wrong<=3?(wrong+1)+'등권':'권외');
+  const col=wrong===0?'var(--pine)':(wrong<=3?'var(--draw)':'var(--away)');
+  return `<div class="tkc" style="border-top-color:${col};margin:0"><div class="tag2" style="color:${col}">${label} · ${combos}조합</div>
+   <div style="font-family:'Space Grotesk';font-size:22px;font-weight:700;margin:4px 0">${decided?rank:'대기중'}</div>
+   <div style="font-size:12px;color:var(--sub)">판정 ${decided}/14 · 틀림 ${wrong}</div></div>`;
+ }
+ const mainCombos=Math.pow(2,M.filter(m=>m.mk.length===2).length);
+ document.getElementById('trackStatus').innerHTML=`<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">${status(M.map(m=>m.mk),'메인',mainCombos)}${status(SAT,'위성',8)}</div>`;
+ M.forEach((m,i)=>{const cell=document.querySelectorAll('#mainTbl tr')[i+1];if(!cell)return;const mkTd=cell.querySelectorAll('td')[6];
+  if(RESULT[i]===null){mkTd.innerHTML=markCell(m.mk);return;}
+  mkTd.innerHTML='<span class="marks">'+m.mk.map(k=>`<span class="tag ${TC[k]} ${m.mk.includes(RESULT[i])?(k===RESULT[i]?'hit-o':''):''}" style="${m.mk.includes(RESULT[i])?'':'opacity:.4;text-decoration:line-through'}">${OL[k]}</span>`).join('')+'</span>';
+ });
+}
+document.addEventListener('click',e=>{const b=e.target.closest('.resbtn[data-m]');if(!b)return;const i=+b.dataset.m,k=+b.dataset.k;RESULT[i]=RESULT[i]===k?null:k;renderTrack();});
+document.getElementById('resetTrack').onclick=()=>{RESULT=new Array(14).fill(null);renderTrack();};
+
+// ---- 괴리 차트 ----
+function divChart(){const ctx=document.getElementById('divChart');if(!ctx||!window.Chart)return;
+ new Chart(ctx,{type:'bar',data:{labels:M.map(m=>m.no+'.'+m.h.slice(0,3)),
+  datasets:[{label:'크라우드 홈승%',data:M.map(m=>m.cr[0]),backgroundColor:'#D85A30'},{label:'모델 홈승%',data:M.map(m=>m.md[0]),backgroundColor:'#2A78D6'}]},
+  options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{font:{size:11}}}},scales:{y:{beginAtZero:true,max:100,ticks:{font:{size:10}}},x:{ticks:{font:{size:9}}}}}});
+}
+
+// ---- TAB2 match cards ----
+function matchCards(){
+ const borderFor=mk=>mk.length>1?'var(--line)':['var(--home)','var(--draw)','var(--away)'][mk[0]];
+ document.getElementById('matchCards').innerHTML=M.map(m=>{
+  const lgc=m.lg==='EPL'?'lg-e':'lg-s';
+  return `<div class="mcard" style="border-left-color:${borderFor(m.mk)}">
+   <h3><span>${m.no}. ${m.h} <span style="color:var(--sub);font-weight:400">v</span> ${m.a} ${m.tag?'<span style="color:var(--pine)">'+m.tag+'</span>':''}</span> <span>${markCell(m.mk)}</span></h3>
+   <div class="meta"><span class="lgtag ${lgc}">${m.lg}</span> · ${m.ko} · 크라우드 ${m.cr.join('/')} · 모델 ${m.md.join('/')}</div>
+   <div class="form">${m.hf}<br>${m.af}</div>
+   <div class="rz">${m.r}</div></div>`}).join('');
+}
+
+// ---- TAB3 ticket cards + rank + sim ----
+function ticketCards(){
+ const single=M.filter(m=>m.mk.length===1).map(m=>m.no+'.'+m.h+' '+m.mk.map(k=>OL[k]).join(''));
+ const dbl=M.filter(m=>m.mk.length===2).map(m=>m.no+'.'+m.h+' '+m.mk.map(k=>OL[k]).join(''));
+ const satS=[],satD=[];SAT.forEach((s,i)=>{const t=M[i].no+'.'+M[i].h+' '+s.map(k=>OL[k]).join('');(s.length===1?satS:satD).push(t)});
+ const nD=M.filter(m=>m.mk.length===2).length,nS=14-nD,combos=Math.pow(2,nD);
+ document.getElementById('ticketCards').innerHTML=`
+  <div class="tkc" style="border-top-color:var(--pine)"><div class="tag2" style="color:var(--pine)">메인 · ${combos}조합 (2${['⁰','¹','²','³','⁴','⁵','⁶','⁷'][nD]})</div><h3>${nS}단식 + ${nD}더블</h3><div class="cb">비용 ${(combos*COST).toLocaleString()}원 · 모델최적 코어</div>
+   <p><b style="color:var(--ink)">단식(9):</b> ${single.join(' · ')}</p>
+   <p style="margin-top:6px"><b style="color:var(--ink)">더블(5):</b> ${dbl.join(' · ')}</p>
+   <p style="margin-top:8px">앵커 1(맨시티)에 홈 리언 단식 + 빅매치·무매그넷 5더블. 원정 커버가 2개뿐(⑦⑨)이라 홈 편중 — 원정강세 시즌 리스크는 위성으로 이관.</p></div>
+  <div class="tkc" style="border-top-color:var(--away)"><div class="tag2" style="color:var(--away)">위성 · 8조합 (2³)</div><h3>11단식 + 3더블</h3><div class="cb">비용 800원 · 무·원정 "다른 세계" (disjoint)</div>
+   <p><b style="color:var(--ink)">단식(11):</b> ${satS.join(' · ')}</p>
+   <p style="margin-top:6px"><b style="color:var(--ink)">더블(3):</b> ${satD.join(' · ')}</p>
+   <p style="margin-top:8px">메인이 홈 편중이라 위성은 <b>무·원정 폭발 시나리오</b>: ①브렌트포드 무·③풀럼 승·⑦헐 패·⑬볼로냐 패처럼 메인과 정반대. 앵커(④맨시티)만 공유. 48회차처럼 원정승 6개 회차가 오면 이 티켓이 산다. 적중률 낮지만(4등내 극소) 이월 배당 극대화.</p></div>`;
+}
+
+function rankTbl(){
+ const mn=tierExp(M.map(m=>m.mk)),st=tierExp(SAT);
+ const fmt=t=>[t.combos,(t.p1*100).toFixed(3)+'%',(t.cum4*100).toFixed(1)+'%',t.miss.toFixed(2)];
+ const a=fmt(mn),b=fmt(st);
+ document.getElementById('rankTbl').innerHTML=`<tr><th>티켓</th><th class="n">조합</th><th class="n">1등(G0)</th><th class="n">4등내(≤3틀림)</th><th class="n">기대 틀림</th></tr>
+  <tr><td><b>메인</b></td><td class="n">${a[0]}</td><td class="n">${a[1]}</td><td class="n">${a[2]}</td><td class="n">${a[3]}</td></tr>
+  <tr><td>위성 8</td><td class="n">${b[0]}</td><td class="n">${b[1]}</td><td class="n">${b[2]}</td><td class="n">${b[3]}</td></tr>`;
+}
+
+// ---- 시뮬레이터 ----
+let SIM=M.map(m=>m.mk.slice());
+function renderSim(){
+ document.getElementById('simRows').innerHTML=M.map((m,i)=>{
+  const btns=[0,1,2].map(k=>`<button class="mbtn ${SIM[i].includes(k)?'on-'+OC[k]:''}" data-i="${i}" data-k="${k}">${OL[k]}</button>`).join('');
+  return `<div class="simrow"><span class="nm">${m.no}. ${m.h} <span style="color:var(--sub)">v</span> ${m.a}</span><span class="num" style="font-size:11px;color:var(--sub);width:74px">${m.md.join('/')}</span>${btns}</div>`}).join('');
+ const t=tierExp(SIM);
+ if(!t){document.getElementById('oCombos').textContent='—';document.getElementById('oWarn').textContent='각 경기 최소 1개 마킹 필요';return}
+ document.getElementById('oCombos').textContent=t.combos;
+ document.getElementById('oCost').textContent=(t.combos*COST).toLocaleString()+'원';
+ document.getElementById('oP1').textContent=(t.p1*100).toFixed(3)+'%';
+ document.getElementById('oCum').textContent=(t.cum4*100).toFixed(1)+'%';
+ document.getElementById('oMiss').textContent=t.miss.toFixed(2)+'개';
+ document.getElementById('oWarn').textContent=t.combos>64?'⚠ 64조합 초과 — 예산 확인':(t.combos===64?'※ 64조합 (2⁶·이월권장)':(t.combos===32?'※ 32조합 (2⁵·메인)':''));
+}
+document.getElementById('simRows').addEventListener('click',e=>{const b=e.target.closest('.mbtn');if(!b)return;const i=+b.dataset.i,k=+b.dataset.k;const s=SIM[i],p=s.indexOf(k);if(p>=0){if(s.length>1)s.splice(p,1)}else s.push(k);s.sort();renderSim()});
+document.getElementById('loadMain').onclick=()=>{SIM=M.map(m=>m.mk.slice());renderSim()};
+document.getElementById('loadSat').onclick=()=>{SIM=SAT.map(s=>s.slice());renderSim()};
+
+// ---- TAB4 ----
+function ruleCards(){
+ const R=[
+  ['규칙0 · de-vig 우선','확률 1차 기준 = 북메이커 배당 de-vig. 라이브 배당 부재라 이번은 <b>자체 엑셀 캘리브레이션</b>(투표율→실제적중 곡선)으로 대체 — 마감 직전 BetMGM 1X2로 교체.'],
+  ['규칙4 · 이월 컨트래리언','이월 누적 → 공유당첨자 최소화가 핵심. 과대평가 정배(①브렌트포드·⑫아스날) 페이드, 저평가 무(③⑪⑬⑭)·원정(⑦⑨) 흡수로 배당 차별화. 위성이 무·원정 세계를 통째로 커버.'],
+  ['48회차 교훈A · 붕괴팀 홈정배 금지','⑬볼로냐 0-0-2 무득점 홈 → 단식 승 금지, 승·무 더블로만. (48회차 ④피오렌티나 홈정배 참사 재발 방지)'],
+  ['48회차 교훈B · 2nd 3%p 단식 승격','2nd 결과가 3%p 이내로 붙은 단식은 더블 또는 명시적 코인 희생으로 표기. ③풀럼(무)·⑦헐(패)을 "코인 희생 단식"으로 명시.'],
+  ['앵커 규칙','클래스 격차 확실한 곳만 단식 앵커: ④맨시티(승) 단독. 빅매치(⑧로마·⑫아스날·⑭유베)는 앵커 금지 — 무 존중 더블.'],
+  ['패 커버 룰(신설)','엑셀 807회차: 패 1개 이하 회차 4%·96%가 2+(중앙값 4). 패 커버는 최소 3 필수 → ⑦승패·⑨무패·⑪무패로 3 확보. 64로 넓히면 ⑭ 승·무 복원 + 원정 1개 추가가 정석.']
+ ];
+ document.getElementById('ruleCards').innerHTML=R.map(x=>`<div class="tkc" style="border-top-color:var(--pine)"><div class="tag2" style="color:var(--pine)">${x[0]}</div><p style="margin-top:8px;font-size:13px;color:var(--ink);line-height:1.55">${x[1]}</p></div>`).join('');
+
+ document.getElementById('calTbl').innerHTML=`<tr><th>투표율 버킷</th><th class="n">표본 n</th><th class="n">실제 적중률</th><th>해석</th></tr>
+  <tr><td>&lt;10%</td><td class="n">4,193</td><td class="n hi">14.8%</td><td>극단 언더독 — 표보다 자주 남(가치)</td></tr>
+  <tr><td>20~30%</td><td class="n">7,761</td><td class="n">28.5%</td><td>거의 정확</td></tr>
+  <tr><td>40~50%</td><td class="n">2,717</td><td class="n">40.8%</td><td>-</td></tr>
+  <tr><td>60~70%</td><td class="n">1,954</td><td class="n hi">52.1%</td><td>정배 과신 — 표보다 덜 적중</td></tr>
+  <tr><td>80~90%</td><td class="n">1,288</td><td class="n">68.4%</td><td>초강세도 68%뿐 → 무 헤지</td></tr>
+  <tr><td>90%+</td><td class="n">348</td><td class="n">81.3%</td><td>거의 확실(앵커존)</td></tr>`;
+
+ document.getElementById('lgTbl').innerHTML=`<tr><th>구분</th><th class="n">승(홈)</th><th class="n">무</th><th class="n">패(원정)</th><th>성격</th></tr>
+  <tr><td>역대 전체 (n=11,834)</td><td class="n">42.9%</td><td class="n">25.9%</td><td class="n">31.1%</td><td>기준선</td></tr>
+  <tr><td><b>2026 시즌</b> (n=653)</td><td class="n">38.1%</td><td class="n">26.8%</td><td class="n hi">35.1%</td><td>원정강세 이상치</td></tr>
+  <tr><td>최근 43~47 (n=70)</td><td class="n">41.4%</td><td class="n">21.4%</td><td class="n">37.1%</td><td>원정 지속·무 저조</td></tr>`;
+
+ document.getElementById('sanityTbl').innerHTML=`<tr><th>지표</th><th class="n">이번 회차</th><th>기준</th></tr>
+  <tr><td>패(원정) 커버 경기</td><td class="n">3</td><td>⑦⑨⑪ — 807회차 통계상 패 1개 이하는 4%뿐(96%가 2+). 중앙값 4보다 낮으나 위성 병행</td></tr>
+  <tr><td>무 커버 경기</td><td class="n">6</td><td>①③⑨⑪⑬⑭ — 무 저평가 존중(적정)</td></tr>
+  <tr><td>승 커버 경기</td><td class="n">10</td><td>①⑦ 더블로 홈 편중 완화(12→10)</td></tr>
+  <tr><td>최고 리스크 단식</td><td class="n hi">⑭무</td><td>유베-밀란 무 단식(38% 모달·59% 미스). 32 유지용 희생 — 64면 승·무 복원</td></tr>`;
+}
+
+// ---- init ----
+cards1();mainTbl();renderTrack();matchCards();ticketCards();rankTbl();renderSim();ruleCards();
+setTimeout(divChart,60);
+document.querySelectorAll('.tabbtn').forEach(b=>b.onclick=()=>{
+ document.querySelectorAll('.tabbtn').forEach(x=>x.classList.remove('on'));b.classList.add('on');
+ document.querySelectorAll('.pane').forEach(p=>p.classList.remove('active'));
+ document.getElementById(b.dataset.pane).classList.add('active');
+});
+</script></body></html>
