@@ -8,7 +8,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "seed": "node scripts/seed_from_excel.mjs"
+    "seed": "node scripts/seed_from_excel.mjs",
+    "test": "node --test"
   },
   "dependencies": {
     "@supabase/ssr": "^0.5.2",
