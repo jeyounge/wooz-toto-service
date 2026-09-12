@@ -33,12 +33,63 @@ function MarkChips({ idxs, resultIdx }) {
   );
 }
 
+/** 인터랙티브 시뮬레이터 (메인/위성 공용) */
+function Simulator({ title, subtitle, voted, pb, initialMarks, accent = 'pine', resetLabel = '복원' }) {
+  const [sim, setSim] = useState(() => initialMarks.map((mk) => [...mk]));
+  const result = useMemo(() => {
+    if (sim.some((mk) => !mk.length)) return null;
+    const coverProbs = sim.map((mk, i) => mk.reduce((s, k) => s + pb[i][k], 0));
+    const doubles = sim.filter((mk) => mk.length >= 2).length;
+    return { ...rankProbs(coverProbs), combos: combosFromDoubles(doubles) };
+  }, [sim, pb]);
+  const toggle = (i, k) => setSim((prev) => {
+    const n = prev.map((mk) => [...mk]);
+    const p = n[i].indexOf(k);
+    if (p >= 0) { if (n[i].length > 1) n[i].splice(p, 1); } else n[i].push(k);
+    n[i].sort();
+    return n;
+  });
+  const expMiss = result ? (voted.length - sim.reduce((s, mk, i) => s + mk.reduce((a, k) => a + pb[i][k], 0), 0)) : 0;
+  const border = accent === 'away' ? 'border-away' : 'border-pine';
+
+  return (
+    <div className="mt-8">
+      <h2 className="font-display text-base font-bold text-ink">{title}</h2>
+      {subtitle && <p className="mt-1 text-xs text-sub">{subtitle}</p>}
+      <div className="mt-3 grid gap-5 lg:grid-cols-[1.5fr_1fr]">
+        <div className="rounded-xl border border-line bg-card p-4">
+          {voted.map((r, i) => (
+            <div key={r.no} className="flex items-center gap-2 border-b border-line py-1.5">
+              <span className="flex-1 text-xs">{r.no}. {r.home} <span className="text-sub">v</span> {r.away}</span>
+              <span className="w-16 font-mono text-[10px] text-sub">{r.model.join('/')}</span>
+              {[0, 1, 2].map((k) => (
+                <button key={k} onClick={() => toggle(i, k)}
+                  className={`h-7 w-8 rounded border font-mono text-[11px] font-bold ${sim[i].includes(k) ? `${BG[k]} border-transparent text-white` : 'border-line bg-paper text-sub'}`}>{OL[k]}</button>
+              ))}
+            </div>
+          ))}
+          <div className="mt-3 flex gap-2">
+            <button onClick={() => setSim(initialMarks.map((mk) => [...mk]))} className="rounded border border-line px-3 py-1 font-mono text-xs text-sub hover:bg-paper">{resetLabel}</button>
+          </div>
+        </div>
+        <div className={`h-fit rounded-xl border ${border} bg-card p-5 lg:sticky lg:top-20`}>
+          <div className="font-display text-3xl font-bold text-ink">{result ? result.combos : '—'}</div>
+          <div className="mb-3 font-mono text-xs text-sub">조합 · {result ? (result.combos * 100).toLocaleString() : 0}원</div>
+          <div className="flex justify-between border-b border-line py-2 text-sm"><span>1등 확률 (G0)</span><b className="font-mono">{result ? (result.g0 * 100).toFixed(3) + '%' : '—'}</b></div>
+          <div className="flex justify-between border-b border-line py-2 text-sm"><span>4등내 (≤3틀림)</span><b className="font-mono">{result ? (result.within3 * 100).toFixed(1) + '%' : '—'}</b></div>
+          <div className="flex justify-between py-2 text-sm"><span>기대 틀림</span><b className="font-mono">{result ? expMiss.toFixed(2) + '개' : '—'}</b></div>
+          {!result && <p className="mt-2 text-xs font-semibold text-away">각 경기 최소 1개 마킹 필요</p>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function TabbedDashboard({ view, roundsList, currentId }) {
   const { round, rows, summary, pb, markIdxList, satellite } = view;
   const voted = useMemo(() => rows.filter((r) => r.hasVote), [rows]);
   const [tab, setTab] = useState('p1');
   const [track, setTrack] = useState(() => voted.map(() => null));
-  const [sim, setSim] = useState(() => markIdxList.map((mk) => [...mk]));
 
   const TABS = [
     ['p1', '🎯 대진 · 마킹'], ['p2', '🔬 경기별 분석'],
@@ -57,24 +108,7 @@ export default function TabbedDashboard({ view, roundsList, currentId }) {
     return { decided, wrong, rank };
   }, [track, markIdxList, voted.length]);
 
-  // 시뮬레이터 등수
-  const simResult = useMemo(() => {
-    if (sim.some((mk) => !mk.length)) return null;
-    const coverProbs = sim.map((mk, i) => mk.reduce((s, k) => s + pb[i][k], 0));
-    const doubles = sim.filter((mk) => mk.length >= 2).length;
-    return { ...rankProbs(coverProbs), combos: combosFromDoubles(doubles) };
-  }, [sim, pb]);
-
-  const toggleSim = (i, k) => {
-    setSim((prev) => {
-      const next = prev.map((mk) => [...mk]);
-      const p = next[i].indexOf(k);
-      if (p >= 0) { if (next[i].length > 1) next[i].splice(p, 1); }
-      else next[i].push(k);
-      next[i].sort();
-      return next;
-    });
-  };
+  const satMarkIdx = satellite ? satellite.rows.map((r) => r.markIdx) : [];
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -229,54 +263,26 @@ export default function TabbedDashboard({ view, roundsList, currentId }) {
                 <div className="font-mono text-xs font-bold text-away">위성 · {satellite.combos}조합</div>
                 <h3 className="mt-1 font-display text-xl font-bold text-ink">{satellite.singles}단식 + {satellite.doubles}더블</h3>
                 <div className="mt-1 font-mono text-xs text-sub">1등 {(satellite.p1 * 100).toFixed(3)}% · 4등내 {(satellite.within3 * 100).toFixed(1)}% · 무{satellite.drawCover}·패{satellite.awayCover} 커버</div>
-                <p className="mt-2 text-[11px] text-sub">이변 헤지 — 무·원정 폭발 시나리오. 앵커만 메인과 공유, 나머진 반대 세계.</p>
-                <div className="mt-3 space-y-1">
-                  {satellite.rows.map((r) => (
-                    <div key={r.no} className="flex items-center gap-2 border-b border-line/50 py-1 text-xs">
-                      <span className="w-5 shrink-0 font-mono text-sub">{r.no}</span>
-                      <span className="flex-1 truncate">{r.home} <span className="text-sub">v</span> {r.away}</span>
-                      <span className="flex shrink-0 gap-1">
-                        {r.markIdx.map((k) => (
-                          <span key={k} className={`rounded px-1.5 py-0.5 text-[10px] font-bold text-white ${BG[k]}`}>{OL[k]}</span>
-                        ))}
-                      </span>
-                    </div>
-                  ))}
-                </div>
+                <p className="mt-2 text-[11px] text-sub">이변 헤지 — 무·원정 폭발 시나리오. 앵커만 메인과 공유, 나머진 반대 세계. 상세 마킹은 아래 위성 시뮬레이터에서.</p>
               </div>
             )}
           </div>
 
-          {/* 시뮬레이터 */}
-          <div className="mt-6">
-            <h2 className="font-display text-base font-bold text-ink">인터랙티브 시뮬레이터</h2>
-            <p className="mt-1 text-xs text-sub">마킹을 토글하면 조합수·등수 확률이 실시간 재계산됩니다. 숫자 = 모델 승/무/패 확률(%).</p>
-            <div className="mt-3 grid gap-5 lg:grid-cols-[1.5fr_1fr]">
-              <div className="rounded-xl border border-line bg-card p-4">
-                {voted.map((r, i) => (
-                  <div key={r.no} className="flex items-center gap-2 border-b border-line py-1.5">
-                    <span className="flex-1 text-xs">{r.no}. {r.home} <span className="text-sub">v</span> {r.away}</span>
-                    <span className="w-16 font-mono text-[10px] text-sub">{r.model.join('/')}</span>
-                    {[0, 1, 2].map((k) => (
-                      <button key={k} onClick={() => toggleSim(i, k)}
-                        className={`h-7 w-8 rounded border font-mono text-[11px] font-bold ${sim[i].includes(k) ? `${BG[k]} border-transparent text-white` : 'border-line bg-paper text-sub'}`}>{OL[k]}</button>
-                    ))}
-                  </div>
-                ))}
-                <div className="mt-3 flex gap-2">
-                  <button onClick={() => setSim(markIdxList.map((mk) => [...mk]))} className="rounded border border-line px-3 py-1 font-mono text-xs text-sub hover:bg-paper">메인 복원</button>
-                </div>
-              </div>
-              <div className="h-fit rounded-xl border border-pine bg-card p-5 lg:sticky lg:top-20">
-                <div className="font-display text-3xl font-bold text-ink">{simResult ? simResult.combos : '—'}</div>
-                <div className="mb-3 font-mono text-xs text-sub">조합 · {simResult ? (simResult.combos * 100).toLocaleString() : 0}원</div>
-                <div className="flex justify-between border-b border-line py-2 text-sm"><span>1등 확률 (G0)</span><b className="font-mono">{simResult ? (simResult.g0 * 100).toFixed(3) + '%' : '—'}</b></div>
-                <div className="flex justify-between border-b border-line py-2 text-sm"><span>4등내 (≤3틀림)</span><b className="font-mono">{simResult ? (simResult.within3 * 100).toFixed(1) + '%' : '—'}</b></div>
-                <div className="flex justify-between py-2 text-sm"><span>기대 틀림</span><b className="font-mono">{simResult ? (voted.length - sim.reduce((s, mk, i) => s + mk.reduce((a, k) => a + pb[i][k], 0), 0)).toFixed(2) + '개' : '—'}</b></div>
-                {simResult && !simResult && <p className="mt-2 text-xs font-semibold text-away">각 경기 최소 1개 마킹 필요</p>}
-              </div>
-            </div>
-          </div>
+          {/* 메인 시뮬레이터 (32) */}
+          <Simulator
+            title="메인 시뮬레이터 (32조합)"
+            subtitle="마킹을 토글하면 조합수·등수 확률이 실시간 재계산됩니다. 숫자 = 모델 승/무/패 확률(%)."
+            voted={voted} pb={pb} initialMarks={markIdxList} accent="pine" resetLabel="메인 복원"
+          />
+
+          {/* 위성 시뮬레이터 (8) */}
+          {satellite && (
+            <Simulator
+              title="위성 시뮬레이터 (8조합)"
+              subtitle="이변 헤지 티켓. 무·원정 편중 세계를 여기서 조정해보세요."
+              voted={voted} pb={pb} initialMarks={satMarkIdx} accent="away" resetLabel="위성 복원"
+            />
+          )}
         </div>
       )}
 
