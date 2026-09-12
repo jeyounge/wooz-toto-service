@@ -1,77 +1,106 @@
 /**
  * roundView.js — 회차 상세를 화면용 뷰 데이터로 변환 (순수함수).
- * DB(대진/투표율/결과) + 계산(캘리브레이션/규칙/조합)을 결합.
+ * DB(대진/투표율/결과) + 계산(캘리브레이션/규칙/티켓빌더/조합)을 결합.
  * 원본 인사이트 HTML의 M[] 구조를 실데이터로 재현.
  */
 import { calibrateVotes } from './calibration.js';
 import { evaluateMatch } from './rules.js';
-import { rankProbs, combosFromDoubles } from './combinatorics.js';
+import { rankProbs, combosFromDoubles, buildTicket } from './combinatorics.js';
 
+const KO = ['승', '무', '패'];
 const KO_IDX = { 승: 0, 무: 1, 패: 2 };
+const ANCHOR_MIN = 80; // 초강세 홈 단식 기준(%)
 
-/** 마킹 커버 확률: 마킹된 결과들의 모델확률 합 (0~1) */
-function coverProb(markIdx, model) {
-  const p = [model.pWin, model.pDraw, model.pLose];
-  const tot = p[0] + p[1] + p[2];
-  if (tot <= 0) return 0;
-  return markIdx.reduce((s, k) => s + p[k] / tot, 0);
+/** 경기별 분석 근거 문장 생성 (규칙 기반 자동). */
+function buildReason(r) {
+  const cr = r.crowd, mo = r.model;
+  const parts = [];
+
+  // 1) 크라우드 vs 모델 괴리 (홈승)
+  const gapH = Math.round(cr[0] - mo[0]);
+  if (Math.abs(gapH) >= 8) {
+    parts.push(
+      `대중 홈 ${cr[0]}% vs 모델 ${mo[0]}% — 홈 ${gapH > 0 ? '과대' : '과소'}평가(${Math.abs(gapH)}%p)${gapH >= 12 ? ', 페이드 후보' : ''}`
+    );
+  }
+
+  // 2) 마킹 방향/이유
+  const arr = [[0, mo[0]], [1, mo[1]], [2, mo[2]]].sort((a, b) => b[1] - a[1]);
+  const gap = arr[0][1] - arr[1][1];
+  if (r.markIdx.length === 1) {
+    parts.push(`${KO[r.markIdx[0]]} 우세(${mo[r.markIdx[0]]}%)로 단식`);
+    if (r.tag === '★') parts.push('클래스 격차 확실 → 앵커');
+  } else {
+    parts.push(`${r.marks.join('·')} 근소(1·2위 ${gap}%p차)로 더블 헤지`);
+  }
+
+  // 3) favorite-longshot: 저평가 무/원정 흡수
+  if (r.markIdx.includes(1) && mo[1] >= cr[1] + 5) parts.push('무 저평가 흡수');
+  if (r.markIdx.includes(2) && mo[2] >= cr[2] + 5) parts.push('원정 저평가 흡수');
+
+  return parts.join(' · ');
 }
 
-/**
- * @param {object} round
- * @param {Array} matches getRoundDetail().matches
- * @returns {{round, rows, summary, pb}}
- */
-export function buildRoundView(round, matches) {
-  const rows = matches.map((m) => {
+export function buildRoundView(round, matches, { targetDoubles = 5 } = {}) {
+  // 1) 경기별 기본 계산 (캘리브레이션 + 규칙 확률보정)
+  const base = matches.map((m) => {
     if (!m.vote) {
-      return {
-        no: m.match_no, home: m.home, away: m.away, league: m.league,
-        hasVote: false, result: m.result,
-      };
+      return { no: m.match_no, home: m.home, away: m.away, league: m.league, hasVote: false, result: m.result };
     }
     const crowd = [m.vote.vote_h, m.vote.vote_d, m.vote.vote_l];
-    const model = evaluateMatch(calibrateVotes(crowd[0], crowd[1], crowd[2]), { league: m.league });
-    const markIdx = model.marks.map((k) => KO_IDX[k]);
-    const mp = [model.probs.pWin, model.probs.pDraw, model.probs.pLose];
-    const tag = model.kind === 'double' ? '◆'
-      : (model.marks[0] === '승' && model.probs.pWin >= 70 ? '★' : '');
+    const ev = evaluateMatch(calibrateVotes(crowd[0], crowd[1], crowd[2]), { league: m.league });
+    const model = [ev.probs.pWin, ev.probs.pDraw, ev.probs.pLose].map((x) => Math.round(x));
     return {
       no: m.match_no, home: m.home, away: m.away, league: m.league,
-      hasVote: true,
-      crowd,                                  // 투표율 [승,무,패]
-      model: mp.map((x) => Math.round(x)),    // 모델확률 [승,무,패]
-      marks: model.marks,                     // ['승'] | ['승','무']
-      markIdx,                                // [0] | [0,1]
-      kind: model.kind, reason: model.reason, tag,
-      result: m.result,
-      resultIdx: m.result != null ? KO_IDX[m.result] : null,
+      hasVote: true, crowd, model, _ev: ev,
+      result: m.result, resultIdx: m.result != null ? KO_IDX[m.result] : null,
     };
   });
 
-  // 확률 배열(정규화, 시뮬레이터/등수용) — 투표율 있는 경기만
-  const voted = rows.filter((r) => r.hasVote);
+  const voted = base.filter((r) => r.hasVote);
+
+  // 2) 티켓 빌더 (32조합=5더블 기본)
+  const models = voted.map((r) => r.model);
+  const ruleDoubleIdx = voted.map((r, i) => (r._ev.kind === 'double' ? i : -1)).filter((i) => i >= 0);
+  const anchorIdx = voted
+    .map((r, i) => {
+      const a = [[0, r.model[0]], [1, r.model[1]], [2, r.model[2]]].sort((x, y) => y[1] - x[1]);
+      return a[0][0] === 0 && a[0][1] >= ANCHOR_MIN ? i : -1;
+    })
+    .filter((i) => i >= 0);
+  const ticket = buildTicket(models, { targetDoubles, ruleDoubleIdx, anchorIdx });
+
+  // 3) 티켓 마킹 반영 + 근거 생성
+  let vi = 0;
+  const rows = base.map((r) => {
+    if (!r.hasVote) return r;
+    const markIdx = ticket[vi++];
+    const marks = markIdx.map((k) => KO[k]);
+    const kind = markIdx.length >= 2 ? 'double' : 'single';
+    const a = [[0, r.model[0]], [1, r.model[1]], [2, r.model[2]]].sort((x, y) => y[1] - x[1]);
+    const tag = kind === 'single' && a[0][0] === 0 && a[0][1] >= ANCHOR_MIN ? '★' : (kind === 'double' ? '◆' : '');
+    const row = { ...r, markIdx, marks, kind, tag };
+    row.reason = buildReason(row);
+    delete row._ev;
+    return row;
+  });
+
+  // 4) 확률 배열 + 요약
   const pb = voted.map((r) => {
     const t = r.model[0] + r.model[1] + r.model[2];
-    return t > 0 ? [r.model[0] / t, r.model[1] / t, r.model[2] / t] : [1 / 3, 1 / 3, 1 / 3];
+    return t > 0 ? r.model.map((x) => x / t) : [1 / 3, 1 / 3, 1 / 3];
   });
-  const markIdxList = voted.map((r) => r.markIdx);
-
-  // 등수/조합 요약
-  const coverProbs = markIdxList.map((mk, i) => {
-    const [h, d, l] = pb[i];
-    return mk.reduce((s, k) => s + [h, d, l][k], 0);
-  });
+  const markIdxList = ticket;
+  const coverProbs = markIdxList.map((mk, i) => mk.reduce((s, k) => s + pb[i][k], 0));
   const doubles = markIdxList.filter((mk) => mk.length >= 2).length;
   const rank = coverProbs.length ? rankProbs(coverProbs) : null;
   const awayCover = markIdxList.filter((mk) => mk.includes(2)).length;
   const anchors = rows.filter((r) => r.tag === '★').length;
 
-  // 결과 KPI
   const settled = rows.filter((r) => r.hasVote && r.result);
   const ourHits = settled.filter((r) => r.marks.includes(r.result)).length;
   const crowdHits = settled.filter((r) => {
-    const top = ['승', '무', '패'][r.crowd.indexOf(Math.max(...r.crowd))];
+    const top = KO[r.crowd.indexOf(Math.max(...r.crowd))];
     return top === r.result;
   }).length;
 
@@ -84,6 +113,7 @@ export function buildRoundView(round, matches) {
     within3: rank ? rank.within3 : 0,
     awayCover, anchors,
     settled: settled.length, ourHits, crowdHits,
+    targetDoubles,
   };
 
   return { round, rows, summary, pb, markIdxList };

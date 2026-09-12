@@ -66,3 +66,40 @@ export function meetsAwayCover(marks, min = AWAY_COVER.MIN_AWAY_COVER) {
 export function doubleCount(marks) {
   return marks.filter((m) => Array.isArray(m) && m.length >= 2).length;
 }
+
+/**
+ * 티켓 빌더: 예산(목표 더블 수)에 맞춰 마킹 구성. (방법론 §조합수학)
+ * - 앵커(클래스 격차 확실)는 단식 고정
+ * - 규칙상 더블(교훈A/B)은 필수 더블
+ * - 부족분은 1·2위 확률 근소차(gap) 작은 순으로 더블 (헤지 가치 큰 경기)
+ * targetDoubles=5 → 2^5=32조합.
+ *
+ * @param {number[][]} models 경기별 [승%, 무%, 패%]
+ * @param {{targetDoubles?:number, ruleDoubleIdx?:number[], anchorIdx?:number[]}} opts
+ * @returns {number[][]} 경기별 markIdx (단식 [top] | 더블 [top,second] 오름차순)
+ */
+export function buildTicket(models, opts = {}) {
+  const { targetDoubles = 5, ruleDoubleIdx = [], anchorIdx = [] } = opts;
+  const info = models.map((m, i) => {
+    const arr = [[0, m[0]], [1, m[1]], [2, m[2]]].sort((a, b) => b[1] - a[1]);
+    return { i, topIdx: arr[0][0], secondIdx: arr[1][0], gap: arr[0][1] - arr[1][1] };
+  });
+
+  const anchors = new Set(anchorIdx);
+  const doubles = new Set(ruleDoubleIdx.filter((i) => !anchors.has(i)));
+
+  // 부족분: 앵커/기존더블 제외, gap 작은 순으로 더블 추가
+  const candidates = info
+    .filter((x) => !anchors.has(x.i) && !doubles.has(x.i))
+    .sort((a, b) => a.gap - b.gap);
+  let need = targetDoubles - doubles.size;
+  for (const c of candidates) {
+    if (need <= 0) break;
+    doubles.add(c.i);
+    need--;
+  }
+
+  return info.map((x) =>
+    doubles.has(x.i) ? [x.topIdx, x.secondIdx].sort((a, b) => a - b) : [x.topIdx]
+  );
+}

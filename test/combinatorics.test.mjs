@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   combosFromDoubles, poissonBinomial, rankProbs,
-  awayCoverCount, meetsAwayCover, doubleCount,
+  awayCoverCount, meetsAwayCover, doubleCount, buildTicket,
 } from '../src/lib/combinatorics.js';
 
 const near = (a, b, eps = 1e-9) => assert.ok(Math.abs(a - b) < eps, `${a} ≈ ${b}`);
@@ -69,4 +69,37 @@ test('doubleCount: 더블 경기 수', () => {
   const marks = [['승'], ['무', '패'], ['승', '무', '패'], ['패']];
   assert.equal(doubleCount(marks), 2);
   assert.equal(combosFromDoubles(doubleCount(marks)), 4);
+});
+
+test('buildTicket: 목표 더블 수 = 조합 지수 (32조합=5더블)', () => {
+  const models = Array.from({ length: 14 }, (_, i) => [50 - i, 30, 20 + i]);
+  const t = buildTicket(models, { targetDoubles: 5 });
+  assert.equal(t.filter((m) => m.length >= 2).length, 5);
+  assert.equal(combosFromDoubles(5), 32);
+});
+
+test('buildTicket: 앵커는 단식 고정', () => {
+  const models = [[90, 6, 4], [40, 35, 25], [38, 34, 28]];
+  const t = buildTicket(models, { targetDoubles: 2, anchorIdx: [0] });
+  assert.equal(t[0].length, 1);        // 앵커 단식 유지
+  assert.deepEqual(t[0], [0]);         // 승 단식
+});
+
+test('buildTicket: 규칙더블 필수 포함', () => {
+  const models = [[50, 30, 20], [45, 40, 15], [60, 25, 15]];
+  const t = buildTicket(models, { targetDoubles: 1, ruleDoubleIdx: [1] });
+  assert.ok(t[1].length >= 2);
+});
+
+test('buildTicket: 근소차(gap 작은) 경기 우선 더블', () => {
+  const models = [[60, 25, 15], [40, 38, 22], [70, 20, 10]]; // idx1 gap=2 최소
+  const t = buildTicket(models, { targetDoubles: 1 });
+  assert.ok(t[1].length >= 2);
+  assert.equal(t[0].length, 1);
+  assert.equal(t[2].length, 1);
+});
+
+test('buildTicket: 단식은 top, 더블은 top+second 오름차순', () => {
+  const t = buildTicket([[40, 38, 22]], { targetDoubles: 1 });
+  assert.deepEqual(t[0], [0, 1]); // 승·무
 });
