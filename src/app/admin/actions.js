@@ -27,15 +27,54 @@ export async function scrapeAndIngest(totoRoundStr) {
       return { ok: false, message: `${totoRound}: 경기 없음 (아직 미편성이거나 회차코드 확인)` };
     }
     const stat = await ingestRound(totoRound, rows);
+
+    // A안: 결과 미완인 이전 회차 자동 재수집(결과 최신화)
+    const backfilled = await backfillIncompleteResults(totoRound);
+
     revalidatePath('/');
-    revalidatePath(`/rounds`);
-    return {
-      ok: true,
-      message: `${totoRound} 수집 완료 — 대진 ${stat.matches} · 투표율 ${stat.votes} · 결과 ${stat.results} (vote=0 제외)`,
-    };
+    revalidatePath('/rounds');
+    let msg = `${totoRound} 수집 완료 — 대진 ${stat.matches} · 투표율 ${stat.votes} · 결과 ${stat.results}`;
+    if (backfilled.length) msg += ` | 이전 회차 결과 갱신: ${backfilled.join(', ')}`;
+    return { ok: true, message: msg };
   } catch (e) {
     return { ok: false, message: `수집 실패: ${e.message}` };
   }
+}
+
+/**
+ * 결과 미완(results < 경기수)인 최근 이전 회차를 betinfo 재수집.
+ * 최근 4개 회차만 검사(직전 몇 개가 보통 미완).
+ */
+async function backfillIncompleteResults(currentCode) {
+  const admin = createAdminClient();
+  const { data: rounds } = await admin
+    .from(TABLES.rounds)
+    .select('id, season, round_no')
+    .order('season', { ascending: false })
+    .order('round_no', { ascending: false })
+    .limit(4);
+  if (!rounds) return [];
+
+  const done = [];
+  for (const r of rounds) {
+    const code = parseInt(r.season, 10) * 1000 + r.round_no;
+    if (code >= currentCode) continue;
+    const { data: ms } = await admin.from(TABLES.matches).select('id').eq('round_id', r.id);
+    const ids = (ms || []).map((m) => m.id);
+    if (!ids.length) continue;
+    const { count: resCount } = await admin
+      .from(TABLES.results).select('*', { count: 'exact', head: true }).in('match_id', ids);
+    if ((resCount ?? 0) < ids.length) {
+      try {
+        const rows = await scrapeRound(code);
+        if (rows.length) {
+          const st = await ingestRound(code, rows);
+          done.push(`${code}(결과 ${st.results})`);
+        }
+      } catch { /* 개별 실패 무시 */ }
+    }
+  }
+  return done;
 }
 
 /**

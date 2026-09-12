@@ -202,7 +202,7 @@ export default function TabbedDashboard({ view, roundsList, currentId }) {
               {r.newsReason && (
                 <div className="mt-2 rounded-lg bg-paper p-2.5 text-xs leading-relaxed text-ink">
                   <span className="font-semibold text-pine">🔎 뉴스 분석</span>
-                  <p className="mt-1">{r.newsReason}</p>
+                  <p className="mt-1 whitespace-pre-line">{r.newsReason}</p>
                 </div>
               )}
               {r.result && <p className="mt-2 font-mono text-[11px] text-ink">결과: <b className={TX[r.resultIdx]}>{r.result}</b> {r.marks.includes(r.result) ? '✅' : '❌'}</p>}
