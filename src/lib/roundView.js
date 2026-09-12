@@ -169,7 +169,7 @@ export function buildRoundView(round, matches, { targetDoubles = 5 } = {}) {
     return acc + (satMarks[i].map((k) => KO[k]).includes(r.result) ? 1 : 0);
   }, 0);
   const satellite = {
-    rows: voted.map((r, i) => ({ no: r.no, home: r.home, away: r.away, league: r.league, marks: satMarks[i].map((k) => KO[k]) })),
+    rows: voted.map((r, i) => ({ no: r.no, home: r.home, away: r.away, league: r.league, marks: satMarks[i].map((k) => KO[k]), markIdx: satMarks[i] })),
     combos: combosFromDoubles(satDoubles),
     singles: voted.length - satDoubles,
     doubles: satDoubles,

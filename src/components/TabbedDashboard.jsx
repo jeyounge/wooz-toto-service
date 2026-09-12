@@ -230,11 +230,17 @@ export default function TabbedDashboard({ view, roundsList, currentId }) {
                 <h3 className="mt-1 font-display text-xl font-bold text-ink">{satellite.singles}단식 + {satellite.doubles}더블</h3>
                 <div className="mt-1 font-mono text-xs text-sub">1등 {(satellite.p1 * 100).toFixed(3)}% · 4등내 {(satellite.within3 * 100).toFixed(1)}% · 무{satellite.drawCover}·패{satellite.awayCover} 커버</div>
                 <p className="mt-2 text-[11px] text-sub">이변 헤지 — 무·원정 폭발 시나리오. 앵커만 메인과 공유, 나머진 반대 세계.</p>
-                <div className="mt-3 flex flex-wrap gap-1">
+                <div className="mt-3 space-y-1">
                   {satellite.rows.map((r) => (
-                    <span key={r.no} className="rounded bg-paper px-1.5 py-0.5 font-mono text-[10px] text-sub" title={`${r.home} v ${r.away}`}>
-                      {r.no}.{r.marks.join('·')}
-                    </span>
+                    <div key={r.no} className="flex items-center gap-2 border-b border-line/50 py-1 text-xs">
+                      <span className="w-5 shrink-0 font-mono text-sub">{r.no}</span>
+                      <span className="flex-1 truncate">{r.home} <span className="text-sub">v</span> {r.away}</span>
+                      <span className="flex shrink-0 gap-1">
+                        {r.markIdx.map((k) => (
+                          <span key={k} className={`rounded px-1.5 py-0.5 text-[10px] font-bold text-white ${BG[k]}`}>{OL[k]}</span>
+                        ))}
+                      </span>
+                    </div>
                   ))}
                 </div>
               </div>
