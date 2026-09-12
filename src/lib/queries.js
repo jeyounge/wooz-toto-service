@@ -43,7 +43,7 @@ export async function getRoundDetail(id) {
     s
       .from(TABLES.matches)
       .select(
-        `id, match_no, league, home, away, kickoff_ts,
+        `id, match_no, league, home, away, kickoff_ts, news_reason, news_updated_ts,
          votes:${TABLES.votes}(vote_h, vote_d, vote_l),
          result:${TABLES.results}(result)`
       )
@@ -62,6 +62,8 @@ export async function getRoundDetail(id) {
     home: m.home,
     away: m.away,
     kickoff_ts: m.kickoff_ts,
+    news_reason: m.news_reason || null,
+    news_updated_ts: m.news_updated_ts || null,
     vote: Array.isArray(m.votes) && m.votes.length ? m.votes[0] : null,
     result: Array.isArray(m.result) && m.result.length ? m.result[0].result : null,
   }));

@@ -44,15 +44,16 @@ function buildReason(r) {
 export function buildRoundView(round, matches, { targetDoubles = 5 } = {}) {
   // 1) 경기별 기본 계산 (캘리브레이션 + 규칙 확률보정)
   const base = matches.map((m) => {
+    const newsReason = m.news_reason || null;
     if (!m.vote) {
-      return { no: m.match_no, home: m.home, away: m.away, league: m.league, hasVote: false, result: m.result };
+      return { no: m.match_no, home: m.home, away: m.away, league: m.league, hasVote: false, result: m.result, newsReason };
     }
     const crowd = [m.vote.vote_h, m.vote.vote_d, m.vote.vote_l];
     const ev = evaluateMatch(calibrateVotes(crowd[0], crowd[1], crowd[2]), { league: m.league });
     const model = [ev.probs.pWin, ev.probs.pDraw, ev.probs.pLose].map((x) => Math.round(x));
     return {
       no: m.match_no, home: m.home, away: m.away, league: m.league,
-      hasVote: true, crowd, model, _ev: ev,
+      hasVote: true, crowd, model, _ev: ev, newsReason,
       result: m.result, resultIdx: m.result != null ? KO_IDX[m.result] : null,
     };
   });

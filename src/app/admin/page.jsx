@@ -4,6 +4,7 @@ import { getLatestRound } from '@/lib/queries';
 import AdminPanel from './AdminPanel';
 
 export const dynamic = 'force-dynamic';
+export const maxDuration = 300; // AI 뉴스 분석(경기별 웹검색)이 오래 걸림 (Vercel Pro 기준)
 
 export default async function AdminPage() {
   const user = await getCurrentUser();

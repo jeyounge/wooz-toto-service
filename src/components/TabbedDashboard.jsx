@@ -199,10 +199,16 @@ export default function TabbedDashboard({ view, roundsList, currentId }) {
               </div>
               <div className="mt-1 font-mono text-[11px] text-sub">{r.league} · 크라우드 {r.crowd.join('/')} · 모델 {r.model.join('/')}</div>
               <p className="mt-2 text-xs leading-relaxed text-sub">↳ {r.reason}</p>
+              {r.newsReason && (
+                <div className="mt-2 rounded-lg bg-paper p-2.5 text-xs leading-relaxed text-ink">
+                  <span className="font-semibold text-pine">🔎 뉴스 분석</span>
+                  <p className="mt-1">{r.newsReason}</p>
+                </div>
+              )}
               {r.result && <p className="mt-2 font-mono text-[11px] text-ink">결과: <b className={TX[r.resultIdx]}>{r.result}</b> {r.marks.includes(r.result) ? '✅' : '❌'}</p>}
             </div>
           ))}
-          <p className="col-span-full mt-2 text-[11px] text-sub">※ 최근폼·H2H·상세 근거는 데이터 수집(스크래퍼) 후 확장됩니다. 현재는 규칙엔진 근거만 표기.</p>
+          <p className="col-span-full mt-2 text-[11px] text-sub">※ 규칙엔진 근거 + AI 뉴스 분석(관리자가 뉴스 반영 재분석 실행 시). 뉴스가 없으면 규칙 근거만 표기됩니다.</p>
         </div>
       )}
 
