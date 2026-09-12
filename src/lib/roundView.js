@@ -41,6 +41,29 @@ function buildReason(r) {
   return parts.join(' · ');
 }
 
+/**
+ * 위성 티켓 — 메인(정배/홈 편중)의 반대 세계(무·원정 폭발)를 커버하는 이변 헤지.
+ * 앵커(초강세)만 메인과 공유, 나머지는 무/패 방향. 무·패 근소 경기 3개 더블 = 8조합.
+ */
+function buildSatellite(voted, anchorIdx, targetDoubles = 3) {
+  const anchors = new Set(anchorIdx);
+  const info = voted.map((r, i) => {
+    const [h, d, l] = r.model;
+    if (anchors.has(i)) {
+      const top = [[0, h], [1, d], [2, l]].sort((a, b) => b[1] - a[1])[0][0];
+      return { i, primary: top, alt: top, gap: 999, anchor: true };
+    }
+    const primary = d >= l ? 1 : 2;   // 무 vs 패 중 높은 쪽 (홈 페이드)
+    const alt = d >= l ? 2 : 1;
+    return { i, primary, alt, gap: Math.abs(d - l), anchor: false };
+  });
+  const cand = info.filter((x) => !x.anchor).sort((a, b) => a.gap - b.gap);
+  const doubles = new Set(cand.slice(0, targetDoubles).map((x) => x.i));
+  return info.map((x) =>
+    doubles.has(x.i) && !x.anchor ? [x.primary, x.alt].sort((a, b) => a - b) : [x.primary]
+  );
+}
+
 export function buildRoundView(round, matches, { targetDoubles = 5 } = {}) {
   // 1) 경기별 기본 계산 (캘리브레이션 + 규칙 확률보정)
   const parseManual = (s) => {
@@ -128,5 +151,34 @@ export function buildRoundView(round, matches, { targetDoubles = 5 } = {}) {
     targetDoubles,
   };
 
-  return { round, rows, summary, pb, markIdxList };
+  // 위성 8조합 (이변·무/원정 헤지)
+  // 위성 공유 기준은 메인 앵커(80)보다 낮은 65 — 확실한 정배는 위성도 공유(무모한 페이드 방지)
+  const SAT_ANCHOR_MIN = 65;
+  const satAnchorIdx = voted
+    .map((r, i) => {
+      const a = [[0, r.model[0]], [1, r.model[1]], [2, r.model[2]]].sort((x, y) => y[1] - x[1]);
+      return a[0][1] >= SAT_ANCHOR_MIN ? i : -1;
+    })
+    .filter((i) => i >= 0);
+  const satMarks = buildSatellite(voted, satAnchorIdx, 3);
+  const satCover = satMarks.map((mk, i) => mk.reduce((s, k) => s + pb[i][k], 0));
+  const satDoubles = satMarks.filter((mk) => mk.length >= 2).length;
+  const satRank = satCover.length ? rankProbs(satCover) : null;
+  const satHits = voted.reduce((acc, r, i) => {
+    if (!r.result) return acc;
+    return acc + (satMarks[i].map((k) => KO[k]).includes(r.result) ? 1 : 0);
+  }, 0);
+  const satellite = {
+    rows: voted.map((r, i) => ({ no: r.no, home: r.home, away: r.away, league: r.league, marks: satMarks[i].map((k) => KO[k]) })),
+    combos: combosFromDoubles(satDoubles),
+    singles: voted.length - satDoubles,
+    doubles: satDoubles,
+    p1: satRank ? satRank.g0 : 0,
+    within3: satRank ? satRank.within3 : 0,
+    awayCover: satMarks.filter((mk) => mk.includes(2)).length,
+    drawCover: satMarks.filter((mk) => mk.includes(1)).length,
+    settledHits: satHits,
+  };
+
+  return { round, rows, summary, pb, markIdxList, satellite };
 }

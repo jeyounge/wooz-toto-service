@@ -34,7 +34,7 @@ function MarkChips({ idxs, resultIdx }) {
 }
 
 export default function TabbedDashboard({ view, roundsList, currentId }) {
-  const { round, rows, summary, pb, markIdxList } = view;
+  const { round, rows, summary, pb, markIdxList, satellite } = view;
   const voted = useMemo(() => rows.filter((r) => r.hasVote), [rows]);
   const [tab, setTab] = useState('p1');
   const [track, setTrack] = useState(() => voted.map(() => null));
@@ -215,10 +215,30 @@ export default function TabbedDashboard({ view, roundsList, currentId }) {
       {/* ===== TAB3 ===== */}
       {tab === 'p3' && (
         <div className="mt-6">
-          <div className="rounded-xl border border-line bg-card p-5" style={{ borderTop: '4px solid var(--pine)' }}>
-            <div className="font-mono text-xs font-bold text-pine">메인 · {summary.combos}조합</div>
-            <h3 className="mt-1 font-display text-xl font-bold text-ink">{summary.singles}단식 + {summary.doubles}더블</h3>
-            <div className="mt-1 font-mono text-xs text-sub">1등 {(summary.p1 * 100).toFixed(3)}% · 4등내 {(summary.within3 * 100).toFixed(1)}% · 패커버 {summary.awayCover}</div>
+          <div className="grid gap-4 md:grid-cols-2">
+            {/* 메인 */}
+            <div className="rounded-xl border border-line bg-card p-5" style={{ borderTop: '4px solid var(--pine)' }}>
+              <div className="font-mono text-xs font-bold text-pine">메인 · {summary.combos}조합</div>
+              <h3 className="mt-1 font-display text-xl font-bold text-ink">{summary.singles}단식 + {summary.doubles}더블</h3>
+              <div className="mt-1 font-mono text-xs text-sub">1등 {(summary.p1 * 100).toFixed(3)}% · 4등내 {(summary.within3 * 100).toFixed(1)}% · 패커버 {summary.awayCover}</div>
+              <p className="mt-2 text-[11px] text-sub">모델 최적 코어. 정배·홈 포함 확률 높은 조합.</p>
+            </div>
+            {/* 위성 */}
+            {satellite && (
+              <div className="rounded-xl border border-line bg-card p-5" style={{ borderTop: '4px solid var(--away)' }}>
+                <div className="font-mono text-xs font-bold text-away">위성 · {satellite.combos}조합</div>
+                <h3 className="mt-1 font-display text-xl font-bold text-ink">{satellite.singles}단식 + {satellite.doubles}더블</h3>
+                <div className="mt-1 font-mono text-xs text-sub">1등 {(satellite.p1 * 100).toFixed(3)}% · 4등내 {(satellite.within3 * 100).toFixed(1)}% · 무{satellite.drawCover}·패{satellite.awayCover} 커버</div>
+                <p className="mt-2 text-[11px] text-sub">이변 헤지 — 무·원정 폭발 시나리오. 앵커만 메인과 공유, 나머진 반대 세계.</p>
+                <div className="mt-3 flex flex-wrap gap-1">
+                  {satellite.rows.map((r) => (
+                    <span key={r.no} className="rounded bg-paper px-1.5 py-0.5 font-mono text-[10px] text-sub" title={`${r.home} v ${r.away}`}>
+                      {r.no}.{r.marks.join('·')}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* 시뮬레이터 */}
