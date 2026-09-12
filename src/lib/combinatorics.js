@@ -79,18 +79,30 @@ export function doubleCount(marks) {
  * @returns {number[][]} 경기별 markIdx (단식 [top] | 더블 [top,second] 오름차순)
  */
 export function buildTicket(models, opts = {}) {
-  const { targetDoubles = 5, ruleDoubleIdx = [], anchorIdx = [] } = opts;
+  const { targetDoubles = 5, ruleDoubleIdx = [], anchorIdx = [], forced = {} } = opts;
   const info = models.map((m, i) => {
     const arr = [[0, m[0]], [1, m[1]], [2, m[2]]].sort((a, b) => b[1] - a[1]);
     return { i, topIdx: arr[0][0], secondIdx: arr[1][0], gap: arr[0][1] - arr[1][1] };
   });
 
-  const anchors = new Set(anchorIdx);
-  const doubles = new Set(ruleDoubleIdx.filter((i) => !anchors.has(i)));
+  // 수동 오버라이드: forced[i] = markIdx 배열 (관리자 확정 마킹)
+  const forcedSingle = new Set();
+  const forcedDouble = new Set();
+  for (const [k, mk] of Object.entries(forced)) {
+    const i = Number(k);
+    if (Array.isArray(mk) && mk.length >= 2) forcedDouble.add(i);
+    else forcedSingle.add(i);
+  }
 
-  // 부족분: 앵커/기존더블 제외, gap 작은 순으로 더블 추가
+  const anchors = new Set(anchorIdx);
+  const doubles = new Set([
+    ...ruleDoubleIdx.filter((i) => !anchors.has(i) && !forcedSingle.has(i)),
+    ...forcedDouble,
+  ]);
+
+  // 부족분: 앵커/기존더블/강제단식 제외, gap 작은 순으로 더블 추가
   const candidates = info
-    .filter((x) => !anchors.has(x.i) && !doubles.has(x.i))
+    .filter((x) => !anchors.has(x.i) && !doubles.has(x.i) && !forcedSingle.has(x.i))
     .sort((a, b) => a.gap - b.gap);
   let need = targetDoubles - doubles.size;
   for (const c of candidates) {
@@ -99,7 +111,8 @@ export function buildTicket(models, opts = {}) {
     need--;
   }
 
-  return info.map((x) =>
-    doubles.has(x.i) ? [x.topIdx, x.secondIdx].sort((a, b) => a - b) : [x.topIdx]
-  );
+  return info.map((x) => {
+    if (forced[x.i]) return [...forced[x.i]].sort((a, b) => a - b);
+    return doubles.has(x.i) ? [x.topIdx, x.secondIdx].sort((a, b) => a - b) : [x.topIdx];
+  });
 }

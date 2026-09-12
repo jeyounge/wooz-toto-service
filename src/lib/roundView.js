@@ -43,8 +43,15 @@ function buildReason(r) {
 
 export function buildRoundView(round, matches, { targetDoubles = 5 } = {}) {
   // 1) 경기별 기본 계산 (캘리브레이션 + 규칙 확률보정)
+  const parseManual = (s) => {
+    if (!s) return null;
+    const idx = String(s).split(',').map((x) => KO_IDX[x.trim()]).filter((x) => x != null);
+    return idx.length ? idx : null;
+  };
+
   const base = matches.map((m) => {
     const newsReason = m.news_reason || null;
+    const manualMarks = parseManual(m.manual_marks);
     if (!m.vote) {
       return { no: m.match_no, home: m.home, away: m.away, league: m.league, hasVote: false, result: m.result, newsReason };
     }
@@ -53,14 +60,14 @@ export function buildRoundView(round, matches, { targetDoubles = 5 } = {}) {
     const model = [ev.probs.pWin, ev.probs.pDraw, ev.probs.pLose].map((x) => Math.round(x));
     return {
       no: m.match_no, home: m.home, away: m.away, league: m.league,
-      hasVote: true, crowd, model, _ev: ev, newsReason,
+      hasVote: true, crowd, model, _ev: ev, newsReason, manualMarks,
       result: m.result, resultIdx: m.result != null ? KO_IDX[m.result] : null,
     };
   });
 
   const voted = base.filter((r) => r.hasVote);
 
-  // 2) 티켓 빌더 (32조합=5더블 기본)
+  // 2) 티켓 빌더 (32조합=5더블 기본) + 관리자 수동 오버라이드(forced)
   const models = voted.map((r) => r.model);
   const ruleDoubleIdx = voted.map((r, i) => (r._ev.kind === 'double' ? i : -1)).filter((i) => i >= 0);
   const anchorIdx = voted
@@ -69,7 +76,9 @@ export function buildRoundView(round, matches, { targetDoubles = 5 } = {}) {
       return a[0][0] === 0 && a[0][1] >= ANCHOR_MIN ? i : -1;
     })
     .filter((i) => i >= 0);
-  const ticket = buildTicket(models, { targetDoubles, ruleDoubleIdx, anchorIdx });
+  const forced = {};
+  voted.forEach((r, i) => { if (r.manualMarks) forced[i] = r.manualMarks; });
+  const ticket = buildTicket(models, { targetDoubles, ruleDoubleIdx, anchorIdx, forced });
 
   // 3) 티켓 마킹 반영 + 근거 생성
   let vi = 0;
@@ -80,9 +89,11 @@ export function buildRoundView(round, matches, { targetDoubles = 5 } = {}) {
     const kind = markIdx.length >= 2 ? 'double' : 'single';
     const a = [[0, r.model[0]], [1, r.model[1]], [2, r.model[2]]].sort((x, y) => y[1] - x[1]);
     const tag = kind === 'single' && a[0][0] === 0 && a[0][1] >= ANCHOR_MIN ? '★' : (kind === 'double' ? '◆' : '');
-    const row = { ...r, markIdx, marks, kind, tag };
-    row.reason = buildReason(row);
+    const manual = !!r.manualMarks;
+    const row = { ...r, markIdx, marks, kind, tag, manual };
+    row.reason = (manual ? '✋ 관리자 수동 조정 · ' : '') + buildReason(row);
     delete row._ev;
+    delete row.manualMarks;
     return row;
   });
 
