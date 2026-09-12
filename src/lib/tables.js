@@ -25,4 +25,5 @@ export const TABLES = {
   kpiLog: t('kpi_log'),
   calibration: t('calibration'),
   teams: t('teams'),
+  retros: t('retros'),
 };
