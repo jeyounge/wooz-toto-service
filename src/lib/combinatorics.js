@@ -4,10 +4,20 @@
  */
 import { AWAY_COVER } from './methodology.js';
 
-/** 조합수 = 2^(더블수). 예: 5더블 → 32조합. */
+/** 조합수 = 2^(더블수). 예: 5더블 → 32조합. (더블만 쓰던 v1 티켓용) */
 export function combosFromDoubles(doubleCount) {
   if (!Number.isInteger(doubleCount) || doubleCount < 0) throw new Error('doubleCount must be a non-negative integer');
   return 2 ** doubleCount;
+}
+
+/** 조합수 = 경기별 마킹 수의 곱. 트리플(승무패 전부)까지 포함. 예: 트리플3 → 27조합. */
+export function combosFromMarks(markIdxList) {
+  return markIdxList.reduce((acc, mk) => acc * Math.max(1, Array.isArray(mk) ? mk.length : 1), 1);
+}
+
+/** 마킹에서 트리플(3개 전부 커버) 경기 수. */
+export function tripleCount(marks) {
+  return marks.filter((m) => Array.isArray(m) && m.length >= 3).length;
 }
 
 /**
@@ -114,5 +124,94 @@ export function buildTicket(models, opts = {}) {
   return info.map((x) => {
     if (forced[x.i]) return [...forced[x.i]].sort((a, b) => a - b);
     return doubles.has(x.i) ? [x.topIdx, x.secondIdx].sort((a, b) => a - b) : [x.topIdx];
+  });
+}
+
+/**
+ * 예산 티켓 빌더 (v2, 2026-09-16) — 조합 예산 안에서 "14경기 전부 커버" 확률을 최대화한다.
+ *
+ * 역대 813회차 백테스트 근거:
+ * - 투표율 1위는 평균 6.96/14개만 적중(49.7%). 13개 이상 적중한 회차는 0회 → 정배 단식만으로 1등 불가.
+ * - 이변 5,723건 중 실제 결과가 최하위 인기(3위)였던 경우가 46.4%. 1·2위 더블은 이걸 통째로 버린다.
+ * - 같은 예산이면 더블을 넓게 펴는 것보다 애매한 경기 2~3개를 트리플로 확정하는 쪽이 낫다.
+ *   더블5(32조합) 14커버 0회 vs 트리플3(27조합) 2회 · 트리플3+더블2(108조합) 3회 vs 더블7(128조합) 1회.
+ *
+ * 한계이득(커버확률 증가율 / 조합수 증가율)이 큰 순으로 마킹을 하나씩 추가한다.
+ * 관리자 수동 마킹(forced)은 고정으로 두고 남은 예산만 배분한다.
+ *
+ * @param {number[][]} models 경기별 [승%, 무%, 패%]
+ * @param {{budget?:number, forced?:Record<number, number[]>}} opts
+ * @returns {number[][]} 경기별 markIdx (오름차순)
+ */
+export function buildBudgetTicket(models, opts = {}) {
+  const { budget = 32, forced = {} } = opts;
+  const probs = models.map((m) => {
+    const total = m[0] + m[1] + m[2];
+    return total > 0 ? m.map((x) => x / total) : [1 / 3, 1 / 3, 1 / 3];
+  });
+
+  const marks = probs.map((p) => [p.indexOf(Math.max(...p))]);
+  const locked = new Set();
+  for (const [key, mk] of Object.entries(forced)) {
+    const i = Number(key);
+    if (!Array.isArray(mk) || !mk.length || !marks[i]) continue;
+    marks[i] = [...new Set(mk)].sort((a, b) => a - b);
+    locked.add(i);
+  }
+
+  let combos = combosFromMarks(marks);
+  for (;;) {
+    let best = null;
+    marks.forEach((mk, i) => {
+      if (locked.has(i) || mk.length >= 3) return;
+      const covered = mk.reduce((s, k) => s + probs[i][k], 0);
+      const rest = [0, 1, 2].filter((k) => !mk.includes(k));
+      const add = rest.reduce((a, k) => (probs[i][k] > probs[i][a] ? k : a), rest[0]);
+      const mult = (mk.length + 1) / mk.length;
+      if (combos * mult > budget + 1e-9) return;
+      if (covered <= 0) return;
+      const gain = Math.log((covered + probs[i][add]) / covered) / Math.log(mult);
+      if (!best || gain > best.gain) best = { i, add, gain, mult };
+    });
+    if (!best) break;
+    marks[best.i] = [...marks[best.i], best.add].sort((a, b) => a - b);
+    combos *= best.mult;
+  }
+  return marks;
+}
+
+/**
+ * 이변 헌터 위성 티켓 — 대중과 정반대로 가는 소액 티켓.
+ *
+ * 역대 11,891경기에서 최하위 인기(3위)가 터진 조건:
+ *   3위 투표율 25%+ → 31.3% · 1·2위 격차 5%p 이내 → 30.1% · 투표율 1위가 무 → 32.0%
+ *   반대로 1위 투표율 80%+ → 10.8% · 3위 투표율 10% 미만 → 14.2%
+ * 위 점수가 높은 경기에 **3위 픽 단식**을 그대로 박고(과감), 그다음 애매한 경기에만 더블을 준다.
+ *
+ * @param {number[][]} crowds 경기별 투표율 [승, 무, 패]
+ * @param {number[][]} models 경기별 모델 확률 [승, 무, 패]
+ * @param {{upsetPicks?:number, doubles?:number}} opts 기본 3픽 + 3더블 = 8조합
+ */
+export function buildUpsetTicket(crowds, models, opts = {}) {
+  const { upsetPicks = 3, doubles = 3 } = opts;
+  const info = crowds.map((c, i) => {
+    const order = [0, 1, 2].sort((a, b) => c[b] - c[a]);
+    const [first, second, third] = order;
+    const score = c[third]                       // 3위 투표율이 높을수록 저평가
+      + Math.max(0, 12 - (c[first] - c[second]))  // 1·2위가 붙어 있을수록
+      + (first === 1 ? 8 : 0)                     // 투표율 1위가 '무'면 1위 적중률 31%뿐
+      - Math.max(0, c[first] - 70) / 2;           // 70% 넘게 쏠린 경기는 제외 쪽으로
+    return { i, first, second, third, score, gap: c[first] - c[second] };
+  });
+
+  const byScore = [...info].sort((a, b) => b.score - a.score);
+  const upset = new Set(byScore.slice(0, upsetPicks).map((x) => x.i));
+  const hedge = new Set(byScore.slice(upsetPicks, upsetPicks + doubles).map((x) => x.i));
+
+  return info.map((x) => {
+    if (upset.has(x.i)) return [x.third];                             // 과감: 최하위 인기 단식
+    if (hedge.has(x.i)) return [x.first, x.second].sort((a, b) => a - b);
+    const m = models[x.i];
+    return [m.indexOf(Math.max(...m))];                                // 나머지는 모델 최적 단식
   });
 }

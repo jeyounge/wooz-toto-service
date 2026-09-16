@@ -1,7 +1,7 @@
 "use client";
 import { useState, useMemo } from 'react';
 import RoundSelector from './RoundSelector';
-import { rankProbs, combosFromDoubles } from '@/lib/combinatorics';
+import { rankProbs, combosFromMarks } from '@/lib/combinatorics';
 import { RULES, LESSONS, AWAY_COVER, BASE_RATES, CAL_VX, CAL_VY } from '@/lib/methodology';
 
 const OL = ['승', '무', '패'];
@@ -39,8 +39,7 @@ function Simulator({ title, subtitle, voted, pb, initialMarks, accent = 'pine', 
   const result = useMemo(() => {
     if (sim.some((mk) => !mk.length)) return null;
     const coverProbs = sim.map((mk, i) => mk.reduce((s, k) => s + pb[i][k], 0));
-    const doubles = sim.filter((mk) => mk.length >= 2).length;
-    return { ...rankProbs(coverProbs), combos: combosFromDoubles(doubles) };
+    return { ...rankProbs(coverProbs), combos: combosFromMarks(sim) };
   }, [sim, pb]);
   const toggle = (i, k) => setSim((prev) => {
     const n = prev.map((mk) => [...mk]);
@@ -137,7 +136,7 @@ export default function TabbedDashboard({ view, roundsList, currentId }) {
           {/* 요약 카드 */}
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
             {[
-              ['메인 조합', String(summary.combos), `${summary.singles}단식 + ${summary.doubles}더블`],
+              ['메인 조합', String(summary.combos), `${summary.singles}단식 + ${summary.doubles}더블 + ${summary.triples}트리플`],
               ['1등 확률', `${(summary.p1 * 100).toFixed(2)}%`, 'Poisson-binomial'],
               ['4등내', `${(summary.within3 * 100).toFixed(1)}%`, '≤3틀림'],
               ['앵커(★)', `${summary.anchors}개`, '초강세 단식'],
@@ -197,7 +196,7 @@ export default function TabbedDashboard({ view, roundsList, currentId }) {
               </tbody>
             </table>
           </div>
-          <p className="mt-3 text-xs text-sub">★=앵커(단식 고정) · ◆=더블 · 막대=<span className="text-home">승</span>/<span className="text-draw">무</span>/<span className="text-away">패</span>. 크라우드=투표율, 모델=캘리브레이션.</p>
+          <p className="mt-3 text-xs text-sub">★=앵커(단식 고정) · ◆=더블 · 🎲=트리플(승무패 전부) · 막대=<span className="text-home">승</span>/<span className="text-draw">무</span>/<span className="text-away">패</span>. 크라우드=투표율, 모델=캘리브레이션.</p>
 
           {/* 괴리 (크라우드 vs 모델 홈승%) */}
           <div className="mt-6">
@@ -253,17 +252,17 @@ export default function TabbedDashboard({ view, roundsList, currentId }) {
             {/* 메인 */}
             <div className="rounded-xl border border-line bg-card p-5" style={{ borderTop: '4px solid var(--pine)' }}>
               <div className="font-mono text-xs font-bold text-pine">메인 · {summary.combos}조합</div>
-              <h3 className="mt-1 font-display text-xl font-bold text-ink">{summary.singles}단식 + {summary.doubles}더블</h3>
+              <h3 className="mt-1 font-display text-xl font-bold text-ink">{summary.singles}단식 + {summary.doubles}더블 + {summary.triples}트리플</h3>
               <div className="mt-1 font-mono text-xs text-sub">1등 {(summary.p1 * 100).toFixed(3)}% · 4등내 {(summary.within3 * 100).toFixed(1)}% · 패커버 {summary.awayCover}</div>
-              <p className="mt-2 text-[11px] text-sub">모델 최적 코어. 정배·홈 포함 확률 높은 조합.</p>
+              <p className="mt-2 text-[11px] text-sub">조합 예산 안에서 14경기 전부 커버할 확률이 가장 높게 배분. 애매한 경기는 승무패 전부(🎲)로 확정한다.</p>
             </div>
             {/* 위성 */}
             {satellite && (
               <div className="rounded-xl border border-line bg-card p-5" style={{ borderTop: '4px solid var(--away)' }}>
                 <div className="font-mono text-xs font-bold text-away">위성 · {satellite.combos}조합</div>
-                <h3 className="mt-1 font-display text-xl font-bold text-ink">{satellite.singles}단식 + {satellite.doubles}더블</h3>
+                <h3 className="mt-1 font-display text-xl font-bold text-ink">{satellite.singles}단식 + {satellite.doubles}더블 · 이변픽 {satellite.upsetPicks}</h3>
                 <div className="mt-1 font-mono text-xs text-sub">1등 {(satellite.p1 * 100).toFixed(3)}% · 4등내 {(satellite.within3 * 100).toFixed(1)}% · 무{satellite.drawCover}·패{satellite.awayCover} 커버</div>
-                <p className="mt-2 text-[11px] text-sub">이변 헤지 — 무·원정 폭발 시나리오. 앵커만 메인과 공유, 나머진 반대 세계. 상세 마킹은 아래 위성 시뮬레이터에서.</p>
+                <p className="mt-2 text-[11px] text-sub">이변 헌터 — 역대 이변 조건(3위 투표율 25%+·1·2위 격차 5%p 이내·투표 1위가 무)이 가장 강한 경기에 최하위 인기 픽을 그대로 박는 과감한 티켓. 메인이 죽는 회차를 노린다.</p>
               </div>
             )}
           </div>

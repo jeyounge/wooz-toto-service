@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   combosFromDoubles, poissonBinomial, rankProbs,
   awayCoverCount, meetsAwayCover, doubleCount, buildTicket,
+  combosFromMarks, buildBudgetTicket, buildUpsetTicket,
 } from '../src/lib/combinatorics.js';
 
 const near = (a, b, eps = 1e-9) => assert.ok(Math.abs(a - b) < eps, `${a} ≈ ${b}`);
@@ -102,4 +103,53 @@ test('buildTicket: 근소차(gap 작은) 경기 우선 더블', () => {
 test('buildTicket: 단식은 top, 더블은 top+second 오름차순', () => {
   const t = buildTicket([[40, 38, 22]], { targetDoubles: 1 });
   assert.deepEqual(t[0], [0, 1]); // 승·무
+});
+
+// ── v2 예산 티켓 / 이변 헌터 (2026-09-16) ──────────────────────────
+test('combosFromMarks: 마킹 수의 곱 (트리플 포함)', () => {
+  assert.equal(combosFromMarks([[0], [0, 1], [0, 1, 2]]), 6);
+  assert.equal(combosFromMarks([[0], [0], [0]]), 1);
+  assert.equal(combosFromMarks([[0, 1, 2], [0, 1, 2], [0, 1, 2]]), 27);
+});
+
+test('buildBudgetTicket: 예산을 넘지 않는다', () => {
+  const models = Array.from({ length: 14 }, () => [40, 33, 27]);
+  for (const budget of [1, 8, 27, 32, 128]) {
+    const marks = buildBudgetTicket(models, { budget });
+    assert.ok(combosFromMarks(marks) <= budget, `budget ${budget}`);
+    assert.equal(marks.length, 14);
+  }
+});
+
+test('buildBudgetTicket: 애매한 경기부터 마킹을 늘린다', () => {
+  const models = [[80, 12, 8], [34, 33, 33], [75, 15, 10]];
+  const marks = buildBudgetTicket(models, { budget: 6 });
+  assert.ok(marks[1].length > marks[0].length, '가장 평평한 경기가 더 넓게 커버돼야 한다');
+  assert.deepEqual(marks[0], [0]);
+});
+
+test('buildBudgetTicket: 수동 마킹은 고정되고 예산에 반영된다', () => {
+  const models = Array.from({ length: 14 }, () => [40, 33, 27]);
+  const marks = buildBudgetTicket(models, { budget: 32, forced: { 3: [1, 2] } });
+  assert.deepEqual(marks[3], [1, 2]);
+  assert.ok(combosFromMarks(marks) <= 32);
+});
+
+test('buildUpsetTicket: 이변 후보에 최하위 인기 픽을 단식으로 박는다', () => {
+  const crowds = [
+    [32, 35, 33],   // 평평 → 이변 후보
+    [30, 36, 34],   // 평평 + 무가 1위 → 이변 후보
+    [31, 35, 34],   // 평평 → 이변 후보
+    [20, 30, 50], [25, 30, 45], [22, 28, 50],  // 헤지 후보
+    [90, 6, 4], [88, 7, 5], [85, 9, 6], [92, 5, 3],
+    [4, 10, 86], [6, 9, 85], [5, 12, 83], [7, 11, 82],
+  ];
+  const models = crowds.map((c) => [...c]);
+  const marks = buildUpsetTicket(crowds, models, { upsetPicks: 3, doubles: 3 });
+  assert.equal(combosFromMarks(marks), 8);
+  const least = (c) => [0, 1, 2].sort((a, b) => c[a] - c[b])[0];
+  const upsetSingles = marks.filter((mk, i) => mk.length === 1 && mk[0] === least(crowds[i])).length;
+  assert.equal(upsetSingles, 3, '이변픽 3개');
+  // 90% 쏠린 경기는 이변픽 대상이 아니다
+  assert.deepEqual(marks[6], [0]);
 });

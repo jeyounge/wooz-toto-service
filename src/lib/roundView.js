@@ -5,7 +5,7 @@
  */
 import { calibrateVotes } from './calibration.js';
 import { evaluateMatch } from './rules.js';
-import { rankProbs, combosFromDoubles, buildTicket } from './combinatorics.js';
+import { rankProbs, combosFromMarks, buildBudgetTicket, buildUpsetTicket } from './combinatorics.js';
 
 const KO = ['승', '무', '패'];
 const KO_IDX = { 승: 0, 무: 1, 패: 2 };
@@ -41,30 +41,7 @@ function buildReason(r) {
   return parts.join(' · ');
 }
 
-/**
- * 위성 티켓 — 메인(정배/홈 편중)의 반대 세계(무·원정 폭발)를 커버하는 이변 헤지.
- * 앵커(초강세)만 메인과 공유, 나머지는 무/패 방향. 무·패 근소 경기 3개 더블 = 8조합.
- */
-function buildSatellite(voted, anchorIdx, targetDoubles = 3) {
-  const anchors = new Set(anchorIdx);
-  const info = voted.map((r, i) => {
-    const [h, d, l] = r.model;
-    if (anchors.has(i)) {
-      const top = [[0, h], [1, d], [2, l]].sort((a, b) => b[1] - a[1])[0][0];
-      return { i, primary: top, alt: top, gap: 999, anchor: true };
-    }
-    const primary = d >= l ? 1 : 2;   // 무 vs 패 중 높은 쪽 (홈 페이드)
-    const alt = d >= l ? 2 : 1;
-    return { i, primary, alt, gap: Math.abs(d - l), anchor: false };
-  });
-  const cand = info.filter((x) => !x.anchor).sort((a, b) => a.gap - b.gap);
-  const doubles = new Set(cand.slice(0, targetDoubles).map((x) => x.i));
-  return info.map((x) =>
-    doubles.has(x.i) && !x.anchor ? [x.primary, x.alt].sort((a, b) => a - b) : [x.primary]
-  );
-}
-
-export function buildRoundView(round, matches, { targetDoubles = 5 } = {}) {
+export function buildRoundView(round, matches, { budget = 32 } = {}) {
   // 1) 경기별 기본 계산 (캘리브레이션 + 규칙 확률보정)
   const parseManual = (s) => {
     if (!s) return null;
@@ -90,18 +67,11 @@ export function buildRoundView(round, matches, { targetDoubles = 5 } = {}) {
 
   const voted = base.filter((r) => r.hasVote);
 
-  // 2) 티켓 빌더 (32조합=5더블 기본) + 관리자 수동 오버라이드(forced)
+  // 2) 티켓 빌더 — 조합 예산(기본 32) 안에서 전체 커버 확률 최대화 + 관리자 수동 오버라이드(forced)
   const models = voted.map((r) => r.model);
-  const ruleDoubleIdx = voted.map((r, i) => (r._ev.kind === 'double' ? i : -1)).filter((i) => i >= 0);
-  const anchorIdx = voted
-    .map((r, i) => {
-      const a = [[0, r.model[0]], [1, r.model[1]], [2, r.model[2]]].sort((x, y) => y[1] - x[1]);
-      return a[0][0] === 0 && a[0][1] >= ANCHOR_MIN ? i : -1;
-    })
-    .filter((i) => i >= 0);
   const forced = {};
   voted.forEach((r, i) => { if (r.manualMarks) forced[i] = r.manualMarks; });
-  const ticket = buildTicket(models, { targetDoubles, ruleDoubleIdx, anchorIdx, forced });
+  const ticket = buildBudgetTicket(models, { budget, forced });
 
   // 3) 티켓 마킹 반영 + 근거 생성
   let vi = 0;
@@ -109,9 +79,11 @@ export function buildRoundView(round, matches, { targetDoubles = 5 } = {}) {
     if (!r.hasVote) return r;
     const markIdx = ticket[vi++];
     const marks = markIdx.map((k) => KO[k]);
-    const kind = markIdx.length >= 2 ? 'double' : 'single';
+    const kind = markIdx.length >= 3 ? 'triple' : markIdx.length === 2 ? 'double' : 'single';
     const a = [[0, r.model[0]], [1, r.model[1]], [2, r.model[2]]].sort((x, y) => y[1] - x[1]);
-    const tag = kind === 'single' && a[0][0] === 0 && a[0][1] >= ANCHOR_MIN ? '★' : (kind === 'double' ? '◆' : '');
+    const tag = kind === 'triple' ? '🎲'
+      : kind === 'double' ? '◆'
+        : (a[0][0] === 0 && a[0][1] >= ANCHOR_MIN ? '★' : '');
     const manual = !!r.manualMarks;
     const row = { ...r, markIdx, marks, kind, tag, manual };
     row.reason = (manual ? '✋ 관리자 수동 조정 · ' : '') + buildReason(row);
@@ -127,7 +99,8 @@ export function buildRoundView(round, matches, { targetDoubles = 5 } = {}) {
   });
   const markIdxList = ticket;
   const coverProbs = markIdxList.map((mk, i) => mk.reduce((s, k) => s + pb[i][k], 0));
-  const doubles = markIdxList.filter((mk) => mk.length >= 2).length;
+  const triples = markIdxList.filter((mk) => mk.length >= 3).length;
+  const doubles = markIdxList.filter((mk) => mk.length === 2).length;
   const rank = coverProbs.length ? rankProbs(coverProbs) : null;
   const awayCover = markIdxList.filter((mk) => mk.includes(2)).length;
   const anchors = rows.filter((r) => r.tag === '★').length;
@@ -142,25 +115,18 @@ export function buildRoundView(round, matches, { targetDoubles = 5 } = {}) {
   const summary = {
     total: rows.length,
     voted: voted.length,
-    combos: combosFromDoubles(doubles),
-    doubles, singles: voted.length - doubles,
+    combos: combosFromMarks(markIdxList),
+    triples, doubles, singles: voted.length - doubles - triples,
     p1: rank ? rank.g0 : 0,
     within3: rank ? rank.within3 : 0,
     awayCover, anchors,
     settled: settled.length, ourHits, crowdHits,
-    targetDoubles,
+    budget,
   };
 
-  // 위성 8조합 (이변·무/원정 헤지)
-  // 위성 공유 기준은 메인 앵커(80)보다 낮은 65 — 확실한 정배는 위성도 공유(무모한 페이드 방지)
-  const SAT_ANCHOR_MIN = 65;
-  const satAnchorIdx = voted
-    .map((r, i) => {
-      const a = [[0, r.model[0]], [1, r.model[1]], [2, r.model[2]]].sort((x, y) => y[1] - x[1]);
-      return a[0][1] >= SAT_ANCHOR_MIN ? i : -1;
-    })
-    .filter((i) => i >= 0);
-  const satMarks = buildSatellite(voted, satAnchorIdx, 3);
+  // 위성 8조합 — 이변 헌터. 역대 이변 조건(3위 투표율 25%+·1·2위 5%p 이내·투표 1위가 무)이
+  // 가장 강한 3경기에 최하위 인기 픽을 그대로 박는 과감한 티켓. 메인이 죽는 회차를 노린다.
+  const satMarks = buildUpsetTicket(voted.map((r) => r.crowd), models, { upsetPicks: 3, doubles: 3 });
   const satCover = satMarks.map((mk, i) => mk.reduce((s, k) => s + pb[i][k], 0));
   const satDoubles = satMarks.filter((mk) => mk.length >= 2).length;
   const satRank = satCover.length ? rankProbs(satCover) : null;
@@ -170,9 +136,15 @@ export function buildRoundView(round, matches, { targetDoubles = 5 } = {}) {
   }, 0);
   const satellite = {
     rows: voted.map((r, i) => ({ no: r.no, home: r.home, away: r.away, league: r.league, marks: satMarks[i].map((k) => KO[k]), markIdx: satMarks[i] })),
-    combos: combosFromDoubles(satDoubles),
+    combos: combosFromMarks(satMarks),
     singles: voted.length - satDoubles,
     doubles: satDoubles,
+    upsetPicks: satMarks.reduce((n, mk, i) => {
+      if (mk.length !== 1) return n;
+      const c = voted[i].crowd;
+      const least = [0, 1, 2].sort((a, b) => c[a] - c[b])[0];
+      return n + (mk[0] === least ? 1 : 0);
+    }, 0),
     p1: satRank ? satRank.g0 : 0,
     within3: satRank ? satRank.within3 : 0,
     awayCover: satMarks.filter((mk) => mk.includes(2)).length,
