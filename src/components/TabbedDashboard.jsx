@@ -33,40 +33,8 @@ function MarkChips({ idxs, resultIdx }) {
   );
 }
 
-/** 분석 티켓 카드 (DB 저장분: 27/32/8조합 등) */
-function StoredTicketCard({ t }) {
-  const accent = t.kind === 'satellite' ? 'var(--away)' : 'var(--pine)';
-  const KO_I = { 승: 0, 무: 1, 패: 2 };
-  return (
-    <div className="rounded-xl border border-line bg-card p-5" style={{ borderTop: `4px solid ${accent}` }}>
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <div className="font-mono text-xs font-bold" style={{ color: accent }}>
-          {t.kind === 'satellite' ? '위성' : '메인'} · {t.combos}조합 · {(t.combos * 1000).toLocaleString()}원
-        </div>
-        {t.settled > 0 && <div className="font-mono text-xs text-ink">적중 {t.hits}/{t.settled}</div>}
-      </div>
-      <h3 className="mt-1 font-display text-lg font-bold text-ink">{t.label}</h3>
-      <div className="mt-1 font-mono text-[11px] text-sub">
-        {t.singles}단식 · {t.doubles}더블 · {t.triples}트리플 · 패커버 {t.awayCover} · 1등 {(t.p1 * 100).toFixed(3)}% · 4등내 {(t.within3 * 100).toFixed(1)}%
-      </div>
-      {t.note && <p className="mt-2 text-xs leading-relaxed text-ink">{t.note}</p>}
-      <div className="mt-3 space-y-1">
-        {t.rows.map((r) => (
-          <div key={r.no} className="flex items-start gap-2 text-[11px]">
-            <span className="w-6 shrink-0 font-mono text-sub">#{r.no}</span>
-            <span className="w-36 shrink-0 truncate text-ink">{r.home} vs {r.away}</span>
-            <span className="shrink-0"><MarkChips idxs={r.markIdx} resultIdx={r.result ? KO_I[r.result] : null} /></span>
-            {r.why && <span className="text-sub">{r.why}</span>}
-          </div>
-        ))}
-      </div>
-      {!t.complete && <p className="mt-2 text-[11px] text-away">※ 일부 경기 마킹이 비어 있어 확률을 계산하지 않았습니다.</p>}
-    </div>
-  );
-}
-
 /** 인터랙티브 시뮬레이터 (메인/위성 공용) */
-function Simulator({ title, subtitle, voted, pb, initialMarks, accent = 'pine', resetLabel = '복원' }) {
+function Simulator({ title, subtitle, voted, pb, initialMarks, accent = 'pine', resetLabel = '복원', whys = {} }) {
   const [sim, setSim] = useState(() => initialMarks.map((mk) => [...mk]));
   const result = useMemo(() => {
     if (sim.some((mk) => !mk.length)) return null;
@@ -91,7 +59,7 @@ function Simulator({ title, subtitle, voted, pb, initialMarks, accent = 'pine', 
         <div className="rounded-xl border border-line bg-card p-4">
           {voted.map((r, i) => (
             <div key={r.no} className="flex items-center gap-2 border-b border-line py-1.5">
-              <span className="flex-1 text-xs">{r.no}. {r.home} <span className="text-sub">v</span> {r.away}</span>
+              <span className="flex-1 text-xs" title={whys[r.no] || undefined}>{r.no}. {r.home} <span className="text-sub">v</span> {r.away}{whys[r.no] && <span className="ml-1 text-pine">ⓘ</span>}</span>
               <span className="w-16 font-mono text-[10px] text-sub">{r.model.join('/')}</span>
               {[0, 1, 2].map((k) => (
                 <button key={k} onClick={() => toggle(i, k)}
@@ -105,13 +73,39 @@ function Simulator({ title, subtitle, voted, pb, initialMarks, accent = 'pine', 
         </div>
         <div className={`h-fit rounded-xl border ${border} bg-card p-5 lg:sticky lg:top-20`}>
           <div className="font-display text-3xl font-bold text-ink">{result ? result.combos : '—'}</div>
-          <div className="mb-3 font-mono text-xs text-sub">조합 · {result ? (result.combos * 100).toLocaleString() : 0}원</div>
+          <div className="mb-3 font-mono text-xs text-sub">조합 · {result ? (result.combos * 1000).toLocaleString() : 0}원</div>
           <div className="flex justify-between border-b border-line py-2 text-sm"><span>1등 확률 (G0)</span><b className="font-mono">{result ? (result.g0 * 100).toFixed(3) + '%' : '—'}</b></div>
           <div className="flex justify-between border-b border-line py-2 text-sm"><span>4등내 (≤3틀림)</span><b className="font-mono">{result ? (result.within3 * 100).toFixed(1) + '%' : '—'}</b></div>
           <div className="flex justify-between py-2 text-sm"><span>기대 틀림</span><b className="font-mono">{result ? expMiss.toFixed(2) + '개' : '—'}</b></div>
           {!result && <p className="mt-2 text-xs font-semibold text-away">각 경기 최소 1개 마킹 필요</p>}
         </div>
       </div>
+    </div>
+  );
+}
+
+/** 티켓 선택 + 시뮬레이터. 버튼으로 27/32/8조합 등을 바꿔 보면 마킹이 그 티켓으로 초기화된다. */
+function TicketSimulator({ options, voted, pb }) {
+  const [sel, setSel] = useState(options[0]?.id);
+  const cur = options.find((o) => o.id === sel) || options[0];
+  if (!cur) return null;
+  return (
+    <div className="mt-8">
+      <div className="flex flex-wrap items-center gap-2">
+        <h2 className="mr-2 font-display text-base font-bold text-ink">티켓 시뮬레이터</h2>
+        {options.map((o) => (
+          <button key={o.id} onClick={() => setSel(o.id)}
+            className={`rounded-full border px-3 py-1 font-mono text-xs font-bold ${o.id === cur.id ? (o.accent === 'away' ? 'border-away bg-away text-white' : 'border-pine bg-pine text-white') : 'border-line bg-card text-sub hover:text-ink'}`}>
+            {o.label}
+          </button>
+        ))}
+      </div>
+      <Simulator
+        key={cur.id}
+        title={cur.title}
+        subtitle={`${cur.note ? cur.note + ' ' : ''}마킹을 토글하면 조합수·등수 확률이 실시간 재계산됩니다. 숫자 = 모델 승/무/패 확률(%).`}
+        voted={voted} pb={pb} initialMarks={cur.marks} accent={cur.accent} resetLabel="이 티켓으로 복원" whys={cur.whys}
+      />
     </div>
   );
 }
@@ -140,6 +134,22 @@ export default function TabbedDashboard({ view, roundsList, currentId }) {
   }, [track, markIdxList, voted.length]);
 
   const satMarkIdx = satellite ? satellite.rows.map((r) => r.markIdx) : [];
+  const simOptions = useMemo(() => {
+    if (storedTickets.length) {
+      return storedTickets.map((t) => ({
+        id: `t${t.id}`,
+        label: `${t.combos}조합`,
+        title: t.label,
+        note: t.note,
+        marks: t.rows.map((r) => r.markIdx),
+        whys: Object.fromEntries(t.rows.filter((r) => r.why).map((r) => [r.no, r.why])),
+        accent: t.kind === 'satellite' ? 'away' : 'pine',
+      }));
+    }
+    const list = [{ id: 'main', label: `${summary.combos}조합`, title: '메인 (자동 엔진)', note: '조합 예산 안에서 14경기 전부 커버할 확률이 가장 높게 배분.', marks: markIdxList, whys: {}, accent: 'pine' }];
+    if (satellite) list.push({ id: 'sat', label: `${satellite.combos}조합`, title: '위성 (이변 헌터)', note: '이변 조건이 강한 경기에 최하위 인기 픽을 박는 티켓.', marks: satMarkIdx, whys: {}, accent: 'away' });
+    return list;
+  }, [storedTickets, summary.combos, markIdxList, satellite, satMarkIdx]);
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -280,17 +290,7 @@ export default function TabbedDashboard({ view, roundsList, currentId }) {
       {/* ===== TAB3 ===== */}
       {tab === 'p3' && (
         <div className="mt-6">
-          {storedTickets.length > 0 && (
-            <section className="mb-8">
-              <h2 className="font-display text-lg font-bold text-ink">📌 이번 회차 분석 티켓</h2>
-              <p className="mt-1 text-xs text-sub">투표율 모델 + 뉴스·복기 교훈을 반영해 회차마다 정리한 티켓입니다. 확률은 현재 투표율 기준으로 다시 계산됩니다. 개인 분석·기록용이며 구매를 권하지 않습니다.</p>
-              <div className="mt-4 grid gap-4 lg:grid-cols-3 md:grid-cols-2">
-                {storedTickets.map((t) => <StoredTicketCard key={t.id} t={t} />)}
-              </div>
-            </section>
-          )}
-          {storedTickets.length > 0 && <h2 className="mb-3 font-display text-lg font-bold text-ink">⚙️ 자동 엔진 티켓</h2>}
-          <div className="grid gap-4 md:grid-cols-2">
+<div className="grid gap-4 md:grid-cols-2">
             {/* 메인 */}
             <div className="rounded-xl border border-line bg-card p-5" style={{ borderTop: '4px solid var(--pine)' }}>
               <div className="font-mono text-xs font-bold text-pine">메인 · {summary.combos}조합</div>
@@ -309,21 +309,11 @@ export default function TabbedDashboard({ view, roundsList, currentId }) {
             )}
           </div>
 
-          {/* 메인 시뮬레이터 (32) */}
-          <Simulator
-            title="메인 시뮬레이터 (32조합)"
-            subtitle="마킹을 토글하면 조합수·등수 확률이 실시간 재계산됩니다. 숫자 = 모델 승/무/패 확률(%)."
-            voted={voted} pb={pb} initialMarks={markIdxList} accent="pine" resetLabel="메인 복원"
+          {/* 티켓 시뮬레이터 — 분석 티켓(27/32/8조합 등)이 있으면 선택, 없으면 자동 엔진 메인/위성 */}
+          <TicketSimulator
+            options={simOptions}
+            voted={voted} pb={pb}
           />
-
-          {/* 위성 시뮬레이터 (8) */}
-          {satellite && (
-            <Simulator
-              title="위성 시뮬레이터 (8조합)"
-              subtitle="이변 헤지 티켓. 무·원정 편중 세계를 여기서 조정해보세요."
-              voted={voted} pb={pb} initialMarks={satMarkIdx} accent="away" resetLabel="위성 복원"
-            />
-          )}
         </div>
       )}
 
