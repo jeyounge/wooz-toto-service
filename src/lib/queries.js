@@ -38,7 +38,7 @@ export async function getLatestRound() {
  */
 export async function getRoundDetail(id) {
   const s = await createClient();
-  const [{ data: round, error: rErr }, { data: matches, error: mErr }] = await Promise.all([
+  const [{ data: round, error: rErr }, { data: matches, error: mErr }, { data: tickets }] = await Promise.all([
     s.from(TABLES.rounds).select('id, season, round_no, status').eq('id', id).maybeSingle(),
     s
       .from(TABLES.matches)
@@ -49,6 +49,12 @@ export async function getRoundDetail(id) {
       )
       .eq('round_id', id)
       .order('match_no', { ascending: true }),
+    // 분석 티켓(관리자가 회차마다 저장한 27/32/8조합 등). 없으면 빈 배열.
+    s.from(TABLES.tickets)
+      .select('id, kind, budget, combos, structure, marks, exp_rank_probs, created_ts')
+      .eq('round_id', id)
+      .is('owner_id', null)
+      .order('id', { ascending: true }),
   ]);
   if (rErr) throw new Error(`getRoundDetail round: ${rErr.message}`);
   if (mErr) throw new Error(`getRoundDetail matches: ${mErr.message}`);
@@ -68,5 +74,5 @@ export async function getRoundDetail(id) {
     vote: Array.isArray(m.votes) && m.votes.length ? m.votes[0] : (m.votes || null),
     result: Array.isArray(m.result) ? (m.result[0]?.result ?? null) : (m.result?.result ?? null),
   }));
-  return { round, matches: normalized };
+  return { round, matches: normalized, tickets: tickets ?? [] };
 }

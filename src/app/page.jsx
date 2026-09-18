@@ -18,7 +18,7 @@ export default async function Home() {
   }
 
   const detail = await getRoundDetail(latest.id);
-  const view = buildRoundView(detail.round, detail.matches);
+  const view = buildRoundView(detail.round, detail.matches, { tickets: detail.tickets });
 
   return <TabbedDashboard view={view} roundsList={roundsList} currentId={latest.id} />;
 }

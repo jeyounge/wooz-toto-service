@@ -11,6 +11,6 @@ export default async function RoundPage({ params }) {
 
   if (!detail) notFound();
 
-  const view = buildRoundView(detail.round, detail.matches);
+  const view = buildRoundView(detail.round, detail.matches, { tickets: detail.tickets });
   return <TabbedDashboard view={view} roundsList={roundsList} currentId={detail.round.id} />;
 }

@@ -33,6 +33,38 @@ function MarkChips({ idxs, resultIdx }) {
   );
 }
 
+/** 분석 티켓 카드 (DB 저장분: 27/32/8조합 등) */
+function StoredTicketCard({ t }) {
+  const accent = t.kind === 'satellite' ? 'var(--away)' : 'var(--pine)';
+  const KO_I = { 승: 0, 무: 1, 패: 2 };
+  return (
+    <div className="rounded-xl border border-line bg-card p-5" style={{ borderTop: `4px solid ${accent}` }}>
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <div className="font-mono text-xs font-bold" style={{ color: accent }}>
+          {t.kind === 'satellite' ? '위성' : '메인'} · {t.combos}조합 · {(t.combos * 1000).toLocaleString()}원
+        </div>
+        {t.settled > 0 && <div className="font-mono text-xs text-ink">적중 {t.hits}/{t.settled}</div>}
+      </div>
+      <h3 className="mt-1 font-display text-lg font-bold text-ink">{t.label}</h3>
+      <div className="mt-1 font-mono text-[11px] text-sub">
+        {t.singles}단식 · {t.doubles}더블 · {t.triples}트리플 · 패커버 {t.awayCover} · 1등 {(t.p1 * 100).toFixed(3)}% · 4등내 {(t.within3 * 100).toFixed(1)}%
+      </div>
+      {t.note && <p className="mt-2 text-xs leading-relaxed text-ink">{t.note}</p>}
+      <div className="mt-3 space-y-1">
+        {t.rows.map((r) => (
+          <div key={r.no} className="flex items-start gap-2 text-[11px]">
+            <span className="w-6 shrink-0 font-mono text-sub">#{r.no}</span>
+            <span className="w-36 shrink-0 truncate text-ink">{r.home} vs {r.away}</span>
+            <span className="shrink-0"><MarkChips idxs={r.markIdx} resultIdx={r.result ? KO_I[r.result] : null} /></span>
+            {r.why && <span className="text-sub">{r.why}</span>}
+          </div>
+        ))}
+      </div>
+      {!t.complete && <p className="mt-2 text-[11px] text-away">※ 일부 경기 마킹이 비어 있어 확률을 계산하지 않았습니다.</p>}
+    </div>
+  );
+}
+
 /** 인터랙티브 시뮬레이터 (메인/위성 공용) */
 function Simulator({ title, subtitle, voted, pb, initialMarks, accent = 'pine', resetLabel = '복원' }) {
   const [sim, setSim] = useState(() => initialMarks.map((mk) => [...mk]));
@@ -85,7 +117,7 @@ function Simulator({ title, subtitle, voted, pb, initialMarks, accent = 'pine', 
 }
 
 export default function TabbedDashboard({ view, roundsList, currentId }) {
-  const { round, rows, summary, pb, markIdxList, satellite } = view;
+  const { round, rows, summary, pb, markIdxList, satellite, storedTickets = [] } = view;
   const voted = useMemo(() => rows.filter((r) => r.hasVote), [rows]);
   const [tab, setTab] = useState('p1');
   const [track, setTrack] = useState(() => voted.map(() => null));
@@ -248,6 +280,16 @@ export default function TabbedDashboard({ view, roundsList, currentId }) {
       {/* ===== TAB3 ===== */}
       {tab === 'p3' && (
         <div className="mt-6">
+          {storedTickets.length > 0 && (
+            <section className="mb-8">
+              <h2 className="font-display text-lg font-bold text-ink">📌 이번 회차 분석 티켓</h2>
+              <p className="mt-1 text-xs text-sub">투표율 모델 + 뉴스·복기 교훈을 반영해 회차마다 정리한 티켓입니다. 확률은 현재 투표율 기준으로 다시 계산됩니다. 개인 분석·기록용이며 구매를 권하지 않습니다.</p>
+              <div className="mt-4 grid gap-4 lg:grid-cols-3 md:grid-cols-2">
+                {storedTickets.map((t) => <StoredTicketCard key={t.id} t={t} />)}
+              </div>
+            </section>
+          )}
+          {storedTickets.length > 0 && <h2 className="mb-3 font-display text-lg font-bold text-ink">⚙️ 자동 엔진 티켓</h2>}
           <div className="grid gap-4 md:grid-cols-2">
             {/* 메인 */}
             <div className="rounded-xl border border-line bg-card p-5" style={{ borderTop: '4px solid var(--pine)' }}>

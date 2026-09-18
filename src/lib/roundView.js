@@ -41,7 +41,46 @@ function buildReason(r) {
   return parts.join(' · ');
 }
 
-export function buildRoundView(round, matches, { budget = 32 } = {}) {
+/**
+ * 분석 티켓(DB 저장분) → 화면용. marks jsonb 형식:
+ *   { note: '티켓 설명', picks: [{ no: 1, marks: '승무', why: '근거(선택)' }, ...] }
+ * 커버 확률·등수 확률은 저장 시점이 아니라 현재 모델 확률로 다시 계산한다(마감 전 투표율 변화 반영).
+ */
+function buildStoredTickets(tickets, voted, pb) {
+  return (tickets || []).map((t) => {
+    const picks = Array.isArray(t.marks?.picks) ? t.marks.picks : [];
+    const byNo = new Map(picks.map((p) => [Number(p.no), p]));
+    const rows = voted.map((r) => {
+      const p = byNo.get(r.no);
+      const markIdx = p ? [...new Set(String(p.marks).split('').map((c) => KO_IDX[c]).filter((x) => x != null))].sort((a, b) => a - b) : [];
+      return { no: r.no, home: r.home, away: r.away, markIdx, marks: markIdx.map((k) => KO[k]), why: p?.why || null, result: r.result || null };
+    });
+    const complete = rows.every((r) => r.markIdx.length > 0);
+    const coverProbs = rows.map((r, i) => r.markIdx.reduce((s, k) => s + pb[i][k], 0));
+    const rank = complete && coverProbs.length ? rankProbs(coverProbs) : null;
+    const settled = rows.filter((r) => r.result);
+    return {
+      id: t.id,
+      kind: t.kind,
+      label: t.structure || (t.kind === 'satellite' ? '위성' : '메인'),
+      note: t.marks?.note || null,
+      budget: t.budget,
+      combos: combosFromMarks(rows.map((r) => r.markIdx)),
+      singles: rows.filter((r) => r.markIdx.length === 1).length,
+      doubles: rows.filter((r) => r.markIdx.length === 2).length,
+      triples: rows.filter((r) => r.markIdx.length >= 3).length,
+      awayCover: rows.filter((r) => r.markIdx.includes(2)).length,
+      p1: rank ? rank.g0 : 0,
+      within3: rank ? rank.within3 : 0,
+      settled: settled.length,
+      hits: settled.filter((r) => r.marks.includes(r.result)).length,
+      rows,
+      complete,
+    };
+  });
+}
+
+export function buildRoundView(round, matches, { budget = 32, tickets = [] } = {}) {
   // 1) 경기별 기본 계산 (캘리브레이션 + 규칙 확률보정)
   const parseManual = (s) => {
     if (!s) return null;
@@ -152,5 +191,7 @@ export function buildRoundView(round, matches, { budget = 32 } = {}) {
     settledHits: satHits,
   };
 
-  return { round, rows, summary, pb, markIdxList, satellite };
+  const storedTickets = buildStoredTickets(tickets, voted, pb);
+
+  return { round, rows, summary, pb, markIdxList, satellite, storedTickets };
 }
