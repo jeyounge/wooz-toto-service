@@ -10,6 +10,15 @@ import * as cheerio from 'cheerio';
 import iconv from 'iconv-lite';
 
 const BETINFO_URL = 'https://www.betinfo.co.kr/z_protorate/totoCal_dual_result.asp';
+
+// 2026-09-22: 짧은 'Mozilla/5.0' UA가 403으로 막히기 시작. 평범한 브라우저 헤더로 맞춘다.
+const BROWSER_HEADERS = {
+  'Content-Type': 'application/x-www-form-urlencoded',
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36',
+  Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8',
+  Referer: 'https://www.betinfo.co.kr/z_protorate/totoCal_dual.asp',
+};
 const clean = (s) => String(s).replace(/\s+/g, ' ').trim();
 const pctNum = (s) => parseFloat(clean(s).replace('%', '')) || 0;
 
@@ -21,7 +30,7 @@ export async function scrapeRound(totoRound) {
   const body = new URLSearchParams({ calcMode: 'soccer', totoUser_id: '', toto_round: String(totoRound) });
   const res = await axios.post(BETINFO_URL, body.toString(), {
     responseType: 'arraybuffer',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'Mozilla/5.0' },
+    headers: BROWSER_HEADERS,
     timeout: 15000,
   });
   const html = iconv.decode(Buffer.from(res.data), 'euc-kr');
