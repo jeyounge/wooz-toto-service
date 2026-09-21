@@ -23,7 +23,9 @@ export async function ingestRound(totoRound, rows) {
   const admin = createAdminClient();
   const season = String(Math.floor(totoRound / 1000));
   const round_no = totoRound % 1000;
-  const valid = rows.filter((r) => !isZeroVote(r));
+  // vote=0은 무효 경기라 버리지만, 전 경기가 0이면 '발매 전'이므로 대진만 먼저 담는다.
+  const preSale = rows.every(isZeroVote);
+  const valid = preSale ? rows : rows.filter((r) => !isZeroVote(r));
 
   // 1) round
   const { data: roundRow, error: rErr } = await admin
