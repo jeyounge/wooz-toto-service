@@ -45,7 +45,8 @@ export async function getRoundDetail(id) {
       .select(
         `id, match_no, league, home, away, kickoff_ts, news_reason, news_updated_ts, manual_marks,
          votes:${TABLES.votes}(vote_h, vote_d, vote_l),
-         result:${TABLES.results}(result)`
+         result:${TABLES.results}(result),
+         probs:${TABLES.modelProbs}(p_win, p_draw, p_lose, source)`
       )
       .eq('round_id', id)
       .order('match_no', { ascending: true }),
@@ -72,6 +73,12 @@ export async function getRoundDetail(id) {
     news_updated_ts: m.news_updated_ts || null,
     manual_marks: m.manual_marks || null,
     vote: Array.isArray(m.votes) && m.votes.length ? m.votes[0] : (m.votes || null),
+    // 배당 디빅 확률(있으면 캘리브레이션보다 우선). 방법론 §규칙0.
+    devig: (() => {
+      const list = Array.isArray(m.probs) ? m.probs : (m.probs ? [m.probs] : []);
+      const d = list.find((x) => x?.source === 'devig');
+      return d ? [Number(d.p_win), Number(d.p_draw), Number(d.p_lose)] : null;
+    })(),
     result: Array.isArray(m.result) ? (m.result[0]?.result ?? null) : (m.result?.result ?? null),
   }));
   return { round, matches: normalized, tickets: tickets ?? [] };

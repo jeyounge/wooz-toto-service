@@ -103,7 +103,7 @@ function TicketSimulator({ options, voted, pb }) {
       <Simulator
         key={cur.id}
         title={cur.title}
-        subtitle={`${cur.note ? cur.note + ' ' : ''}마킹을 토글하면 조합수·등수 확률이 실시간 재계산됩니다. 숫자 = 모델 승/무/패 확률(%).`}
+        subtitle={`${cur.final ? '내가 최종 결정한 픽입니다(분석 티켓과 결과를 비교해 복기에 씁니다). ' : ''}${cur.note ? cur.note + ' ' : ''}마킹을 토글하면 조합수·등수 확률이 실시간 재계산됩니다. 숫자 = 모델 승/무/패 확률(%).`}
         voted={voted} pb={pb} initialMarks={cur.marks} accent={cur.accent} resetLabel="이 티켓으로 복원" whys={cur.whys}
       />
     </div>
@@ -138,12 +138,13 @@ export default function TabbedDashboard({ view, roundsList, currentId }) {
     if (storedTickets.length) {
       return storedTickets.map((t) => ({
         id: `t${t.id}`,
-        label: `${t.combos}조합`,
+        label: t.isFinal ? `🙋 ${t.combos}조합` : `${t.combos}조합`,
         title: t.label,
         note: t.note,
         marks: t.rows.map((r) => r.markIdx),
         whys: Object.fromEntries(t.rows.filter((r) => r.why).map((r) => [r.no, r.why])),
-        accent: t.kind === 'satellite' ? 'away' : 'pine',
+        accent: t.isFinal ? 'pine' : (t.kind === 'satellite' ? 'away' : 'pine'),
+        final: t.isFinal,
       }));
     }
     const list = [{ id: 'main', label: `${summary.combos}조합`, title: '메인 (자동 엔진)', note: '조합 예산 안에서 14경기 전부 커버할 확률이 가장 높게 배분.', marks: markIdxList, whys: {}, accent: 'pine' }];

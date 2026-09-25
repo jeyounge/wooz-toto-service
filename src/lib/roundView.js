@@ -62,6 +62,8 @@ function buildStoredTickets(tickets, voted, pb) {
     return {
       id: t.id,
       kind: t.kind,
+      // 사용자가 최종 결정한 픽. 분석 티켓과 나란히 두고 결과로 비교한다.
+      isFinal: !!t.marks?.final,
       label: t.structure || (t.kind === 'satellite' ? '위성' : '메인'),
       note: t.marks?.note || null,
       budget: t.budget,
@@ -96,10 +98,14 @@ export function buildRoundView(round, matches, { budget = 32, tickets = [] } = {
     }
     const crowd = [m.vote.vote_h, m.vote.vote_d, m.vote.vote_l];
     const ev = evaluateMatch(calibrateVotes(crowd[0], crowd[1], crowd[2]), { league: m.league });
-    const model = [ev.probs.pWin, ev.probs.pDraw, ev.probs.pLose].map((x) => Math.round(x));
+    // 방법론 §규칙0: 배당(디빅)이 있으면 그것을 쓰고, 없으면 투표율 캘리브레이션.
+    const model = m.devig
+      ? m.devig.map((x) => Math.round(x * 100))
+      : [ev.probs.pWin, ev.probs.pDraw, ev.probs.pLose].map((x) => Math.round(x));
+    const probSource = m.devig ? 'devig' : 'cal';
     return {
       no: m.match_no, home: m.home, away: m.away, league: m.league,
-      hasVote: true, crowd, model, _ev: ev, newsReason, manualMarks,
+      hasVote: true, crowd, model, probSource, _ev: ev, newsReason, manualMarks,
       result: m.result, resultIdx: m.result != null ? KO_IDX[m.result] : null,
     };
   });
@@ -191,7 +197,9 @@ export function buildRoundView(round, matches, { budget = 32, tickets = [] } = {
     settledHits: satHits,
   };
 
-  const storedTickets = buildStoredTickets(tickets, voted, pb);
+  // 최종 픽을 맨 앞에 둔다(대시보드 선택 버튼 순서).
+  const storedTickets = buildStoredTickets(tickets, voted, pb)
+    .sort((a, b) => Number(b.isFinal) - Number(a.isFinal));
 
   return { round, rows, summary, pb, markIdxList, satellite, storedTickets };
 }
