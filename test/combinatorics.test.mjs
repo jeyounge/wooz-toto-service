@@ -123,9 +123,13 @@ test('buildBudgetTicket: 예산을 넘지 않는다', () => {
 
 test('buildBudgetTicket: 애매한 경기부터 마킹을 늘린다', () => {
   const models = [[80, 12, 8], [34, 33, 33], [75, 15, 10]];
-  const marks = buildBudgetTicket(models, { budget: 6 });
-  assert.ok(marks[1].length > marks[0].length, '가장 평평한 경기가 더 넓게 커버돼야 한다');
-  assert.deepEqual(marks[0], [0]);
+  const tight = buildBudgetTicket(models, { budget: 3 });
+  assert.equal(tight[1].length, 3, '예산이 빠듯하면 가장 평평한 경기부터 넓힌다');
+  assert.deepEqual(tight[0], [0], '확실한 경기는 단식으로 둔다');
+  // 예산이 남으면 확실한 경기에도 순서대로 쓴다
+  const loose = buildBudgetTicket(models, { budget: 12 });
+  assert.ok(combosFromMarks(loose) > combosFromMarks(tight));
+  assert.ok(loose.every((mk, i) => mk.length >= tight[i].length));
 });
 
 test('buildBudgetTicket: 수동 마킹은 고정되고 예산에 반영된다', () => {
@@ -152,4 +156,18 @@ test('buildUpsetTicket: 이변 후보에 최하위 인기 픽을 단식으로 �
   assert.equal(upsetSingles, 3, '이변픽 3개');
   // 90% 쏠린 경기는 이변픽 대상이 아니다
   assert.deepEqual(marks[6], [0]);
+});
+
+test('buildBudgetTicket: 목표 rank4(4등내)가 기본이고 all보다 4등내 확률이 높다', () => {
+  const models = [[70,18,12],[65,20,15],[40,33,27],[38,34,28],[55,25,20],[60,22,18],[45,30,25],
+                  [52,26,22],[30,36,34],[44,31,25],[48,29,23],[25,30,45],[58,24,18],[22,29,49]];
+  const cover = (mk) => mk.map((m, i) => {
+    const t = models[i][0] + models[i][1] + models[i][2];
+    return m.reduce((s, k) => s + models[i][k] / t, 0);
+  });
+  const r4 = buildBudgetTicket(models, { budget: 32 });
+  const all = buildBudgetTicket(models, { budget: 32, objective: 'all' });
+  assert.ok(rankProbs(cover(r4)).within3 >= rankProbs(cover(all)).within3, '기본 목표가 4등내를 더 높인다');
+  assert.ok(combosFromMarks(r4) <= 32);
+  assert.ok(cover(all).reduce((a, b) => a * b, 1) >= cover(r4).reduce((a, b) => a * b, 1), "objective:'all'은 1등 확률을 더 높인다");
 });

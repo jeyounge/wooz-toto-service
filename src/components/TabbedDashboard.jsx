@@ -296,7 +296,7 @@ export default function TabbedDashboard({ view, roundsList, currentId }) {
               <div className="font-mono text-xs font-bold text-pine">메인 · {summary.combos}조합</div>
               <h3 className="mt-1 font-display text-xl font-bold text-ink">{summary.singles}단식 + {summary.doubles}더블 + {summary.triples}트리플</h3>
               <div className="mt-1 font-mono text-xs text-sub">1등 {(summary.p1 * 100).toFixed(3)}% · 4등내 {(summary.within3 * 100).toFixed(1)}% · 패커버 {summary.awayCover}</div>
-              <p className="mt-2 text-[11px] text-sub">조합 예산 안에서 14경기 전부 커버할 확률이 가장 높게 배분. 애매한 경기는 승무패 전부(🎲)로 확정한다.</p>
+              <p className="mt-2 text-[11px] text-sub">조합 예산 안에서 <b>4등내(11개 이상 적중)</b> 확률이 가장 높게 배분한다. 1등(14개)은 예산을 늘려도 0.05%대라 사실상 살 수 없지만, 4등내는 예산에 비례해 오른다(32조합 약 12%). 애매한 경기는 승무패 전부(🎲)로 확정.</p>
             </div>
             {/* 위성 */}
             {satellite && (

@@ -128,7 +128,13 @@ export function buildTicket(models, opts = {}) {
 }
 
 /**
- * 예산 티켓 빌더 (v2, 2026-09-16) — 조합 예산 안에서 "14경기 전부 커버" 확률을 최대화한다.
+ * 예산 티켓 빌더 (v3, 2026-09-25) — 조합 예산 안에서 **4등내(11개 이상 적중)** 확률을 최대화한다.
+ *
+ * v2는 "14경기 전부 커버"(1등)를 최대화했는데, 그 목표는 예산을 아무리 늘려도 0.05% 수준이라
+ * 사실상 살 수 없는 목표였다. 등수(1~4등)는 11개 이상이면 되고 예산에 거의 선형으로 반응한다:
+ *   32조합 4등내 12.0% / 64조합 16.2% / 128조합 21.3% / 256조합 30.9% (2026055 기준)
+ * 참고로 전 경기 정배 단식 한 장은 4등내 1.94%에 그친다 — 정배만으로는 등수권이 불가능하다.
+ * objective:'all'을 주면 예전처럼 1등 확률을 최대화한다.
  *
  * 역대 813회차 백테스트 근거:
  * - 투표율 1위는 평균 6.96/14개만 적중(49.7%). 13개 이상 적중한 회차는 0회 → 정배 단식만으로 1등 불가.
@@ -140,11 +146,11 @@ export function buildTicket(models, opts = {}) {
  * 관리자 수동 마킹(forced)은 고정으로 두고 남은 예산만 배분한다.
  *
  * @param {number[][]} models 경기별 [승%, 무%, 패%]
- * @param {{budget?:number, forced?:Record<number, number[]>}} opts
+ * @param {{budget?:number, forced?:Record<number, number[]>, objective?:'rank4'|'all'}} opts
  * @returns {number[][]} 경기별 markIdx (오름차순)
  */
 export function buildBudgetTicket(models, opts = {}) {
-  const { budget = 32, forced = {} } = opts;
+  const { budget = 32, forced = {}, objective = 'rank4' } = opts;
   const probs = models.map((m) => {
     const total = m[0] + m[1] + m[2];
     return total > 0 ? m.map((x) => x / total) : [1 / 3, 1 / 3, 1 / 3];
@@ -159,23 +165,39 @@ export function buildBudgetTicket(models, opts = {}) {
     locked.add(i);
   }
 
+  // 목표값: 'rank4' = 11개 이상 적중(4등내) 확률, 'all' = 14개 전부 적중(1등) 확률
+  const coverOf = (mks) => mks.map((mk, i) => mk.reduce((s, k) => s + probs[i][k], 0));
+  const score = (mks) => {
+    const cover = coverOf(mks);
+    return objective === 'all' ? cover.reduce((a, b) => a * b, 1) : rankProbs(cover).within3;
+  };
+
   let combos = combosFromMarks(marks);
-  for (;;) {
-    let best = null;
-    marks.forEach((mk, i) => {
-      if (locked.has(i) || mk.length >= 3) return;
-      const covered = mk.reduce((s, k) => s + probs[i][k], 0);
-      const rest = [0, 1, 2].filter((k) => !mk.includes(k));
-      const add = rest.reduce((a, k) => (probs[i][k] > probs[i][a] ? k : a), rest[0]);
-      const mult = (mk.length + 1) / mk.length;
-      if (combos * mult > budget + 1e-9) return;
-      if (covered <= 0) return;
-      const gain = Math.log((covered + probs[i][add]) / covered) / Math.log(mult);
-      if (!best || gain > best.gain) best = { i, add, gain, mult };
-    });
-    if (!best) break;
-    marks[best.i] = [...marks[best.i], best.add].sort((a, b) => a - b);
-    combos *= best.mult;
+  // 1단계: 목표값 기준 배분. 2단계: 목표값이 더 오르지 않으면(예: 경기 수가 적어 4등내가 이미 1.0)
+  //        남은 예산을 1등 확률에 쓴다.
+  for (const scoreFn of objective === 'all' ? [score] : [score, (mks) => coverOf(mks).reduce((a, b) => a * b, 1)]) {
+    let current = scoreFn(marks);
+    for (;;) {
+      let best = null;
+      marks.forEach((mk, i) => {
+        if (locked.has(i) || mk.length >= 3) return;
+        const rest = [0, 1, 2].filter((k) => !mk.includes(k));
+        const add = rest.reduce((a, k) => (probs[i][k] > probs[i][a] ? k : a), rest[0]);
+        const mult = (mk.length + 1) / mk.length;
+        if (combos * mult > budget + 1e-9) return;
+        const trial = marks.map((x, j) => (j === i ? [...x, add] : x));
+        const next = scoreFn(trial);
+        // 부동소수점 잡음으로 예산을 쓰지 않도록 의미 있는 개선만 인정한다.
+        // (경기 수가 적으면 4등내 확률이 1.0으로 포화돼 1e-16 수준의 가짜 이득이 생긴다)
+        if (!(next > current * (1 + 1e-9))) return;
+        const gain = Math.log(next / current) / Math.log(mult); // 조합수 1단위당 이득
+        if (!best || gain > best.gain) best = { i, add, gain, mult, next };
+      });
+      if (!best) break;
+      marks[best.i] = [...marks[best.i], best.add].sort((a, b) => a - b);
+      combos *= best.mult;
+      current = best.next;
+    }
   }
   return marks;
 }
