@@ -1,6 +1,7 @@
 "use client";
 import { useState, useMemo } from 'react';
 import RoundSelector from './RoundSelector';
+import { saveFinalPick } from '@/app/actions/finalPick';
 import { rankProbs, combosFromMarks } from '@/lib/combinatorics';
 import { RULES, LESSONS, AWAY_COVER, BASE_RATES, CAL_VX, CAL_VY } from '@/lib/methodology';
 
@@ -34,8 +35,21 @@ function MarkChips({ idxs, resultIdx }) {
 }
 
 /** 인터랙티브 시뮬레이터 (메인/위성 공용) */
-function Simulator({ title, subtitle, voted, pb, initialMarks, accent = 'pine', resetLabel = '복원', whys = {} }) {
+function Simulator({ title, subtitle, voted, pb, initialMarks, accent = 'pine', resetLabel = '복원', whys = {}, canSaveFinal = false, roundId = null }) {
   const [sim, setSim] = useState(() => initialMarks.map((mk) => [...mk]));
+  const [note, setNote] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saveMsg, setSaveMsg] = useState(null);
+  const onSaveFinal = async () => {
+    setSaving(true); setSaveMsg(null);
+    try {
+      const picks = voted.map((r, i) => ({ no: r.no, marks: [...sim[i]].sort().map((k) => OL[k]).join('') }));
+      const res = await saveFinalPick({ roundId, picks, note });
+      setSaveMsg(res);
+    } catch (e) {
+      setSaveMsg({ ok: false, message: `저장 실패: ${e.message}` });
+    } finally { setSaving(false); }
+  };
   const result = useMemo(() => {
     if (sim.some((mk) => !mk.length)) return null;
     const coverProbs = sim.map((mk, i) => mk.reduce((s, k) => s + pb[i][k], 0));
@@ -67,9 +81,21 @@ function Simulator({ title, subtitle, voted, pb, initialMarks, accent = 'pine', 
               ))}
             </div>
           ))}
-          <div className="mt-3 flex gap-2">
+          <div className="mt-3 flex flex-wrap items-center gap-2">
             <button onClick={() => setSim(initialMarks.map((mk) => [...mk]))} className="rounded border border-line px-3 py-1 font-mono text-xs text-sub hover:bg-paper">{resetLabel}</button>
+            {canSaveFinal && (
+              <>
+                <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="메모(선택) — 왜 이렇게 골랐는지"
+                  className="min-w-[180px] flex-1 rounded border border-line bg-paper px-2 py-1 text-xs text-ink placeholder:text-sub" />
+                <button onClick={onSaveFinal} disabled={saving}
+                  className="rounded bg-pine px-3 py-1 font-mono text-xs font-bold text-white disabled:opacity-50">
+                  {saving ? '저장 중…' : '🙋 내 최종 픽으로 저장'}
+                </button>
+              </>
+            )}
           </div>
+          {saveMsg && <p className={`mt-2 text-xs ${saveMsg.ok ? 'text-pine' : 'text-away'}`}>{saveMsg.message}</p>}
+          {canSaveFinal && <p className="mt-1 text-[11px] text-sub">현재 마킹 그대로 저장됩니다. 결과가 나오면 분석 티켓과 적중이 나란히 비교됩니다.</p>}
         </div>
         <div className={`h-fit rounded-xl border ${border} bg-card p-5 lg:sticky lg:top-20`}>
           <div className="font-display text-3xl font-bold text-ink">{result ? result.combos : '—'}</div>
@@ -85,7 +111,7 @@ function Simulator({ title, subtitle, voted, pb, initialMarks, accent = 'pine', 
 }
 
 /** 티켓 선택 + 시뮬레이터. 버튼으로 27/32/8조합 등을 바꿔 보면 마킹이 그 티켓으로 초기화된다. */
-function TicketSimulator({ options, voted, pb }) {
+function TicketSimulator({ options, voted, pb, canSaveFinal = false, roundId = null }) {
   const [sel, setSel] = useState(options[0]?.id);
   const cur = options.find((o) => o.id === sel) || options[0];
   if (!cur) return null;
@@ -105,12 +131,13 @@ function TicketSimulator({ options, voted, pb }) {
         title={cur.title}
         subtitle={`${cur.final ? '내가 최종 결정한 픽입니다(분석 티켓과 결과를 비교해 복기에 씁니다). ' : ''}${cur.note ? cur.note + ' ' : ''}마킹을 토글하면 조합수·등수 확률이 실시간 재계산됩니다. 숫자 = 모델 승/무/패 확률(%).`}
         voted={voted} pb={pb} initialMarks={cur.marks} accent={cur.accent} resetLabel="이 티켓으로 복원" whys={cur.whys}
+        canSaveFinal={canSaveFinal} roundId={roundId}
       />
     </div>
   );
 }
 
-export default function TabbedDashboard({ view, roundsList, currentId }) {
+export default function TabbedDashboard({ view, roundsList, currentId, canSaveFinal = false }) {
   const { round, rows, summary, pb, markIdxList, satellite, storedTickets = [] } = view;
   const voted = useMemo(() => rows.filter((r) => r.hasVote), [rows]);
   const [tab, setTab] = useState('p1');
@@ -314,6 +341,7 @@ export default function TabbedDashboard({ view, roundsList, currentId }) {
           <TicketSimulator
             options={simOptions}
             voted={voted} pb={pb}
+            canSaveFinal={canSaveFinal} roundId={round.id}
           />
         </div>
       )}

@@ -1,4 +1,5 @@
 import { getLatestRound, getRoundsList, getRoundDetail } from '@/lib/queries';
+import { getCurrentUser, isAdmin } from '@/lib/auth';
 import { buildRoundView } from '@/lib/roundView';
 import TabbedDashboard from '@/components/TabbedDashboard';
 
@@ -19,6 +20,7 @@ export default async function Home() {
 
   const detail = await getRoundDetail(latest.id);
   const view = buildRoundView(detail.round, detail.matches, { tickets: detail.tickets });
+  const canSaveFinal = isAdmin(await getCurrentUser());
 
-  return <TabbedDashboard view={view} roundsList={roundsList} currentId={latest.id} />;
+  return <TabbedDashboard view={view} roundsList={roundsList} currentId={latest.id} canSaveFinal={canSaveFinal} />;
 }

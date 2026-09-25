@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation';
 import { getRoundsList, getRoundDetail } from '@/lib/queries';
+import { getCurrentUser, isAdmin } from '@/lib/auth';
 import { buildRoundView } from '@/lib/roundView';
 import TabbedDashboard from '@/components/TabbedDashboard';
 
@@ -12,5 +13,6 @@ export default async function RoundPage({ params }) {
   if (!detail) notFound();
 
   const view = buildRoundView(detail.round, detail.matches, { tickets: detail.tickets });
-  return <TabbedDashboard view={view} roundsList={roundsList} currentId={detail.round.id} />;
+  const canSaveFinal = isAdmin(await getCurrentUser());
+  return <TabbedDashboard view={view} roundsList={roundsList} currentId={detail.round.id} canSaveFinal={canSaveFinal} />;
 }
