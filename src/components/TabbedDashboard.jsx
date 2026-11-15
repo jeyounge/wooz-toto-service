@@ -3,7 +3,7 @@ import { useState, useMemo } from 'react';
 import RoundSelector from './RoundSelector';
 import { saveFinalPick } from '@/app/actions/finalPick';
 import { rankProbs, combosFromMarks } from '@/lib/combinatorics';
-import { RULES, LESSONS, AWAY_COVER, BASE_RATES, CAL_VX, CAL_VY } from '@/lib/methodology';
+import { RULES, LESSONS, AWAY_COVER, BASE_RATES, CAL_VX, CAL_VY, CAL_VY_DRAW } from '@/lib/methodology';
 
 const OL = ['승', '무', '패'];
 const BG = ['bg-home', 'bg-draw', 'bg-away'];
@@ -370,7 +370,7 @@ export default function TabbedDashboard({ view, roundsList, currentId, canSaveFi
             <div className="mt-3 overflow-x-auto rounded-xl border border-line">
               <table className="w-full font-mono text-xs">
                 <thead><tr className="border-b border-line text-sub"><th className="px-3 py-2 text-left">투표율%</th>{CAL_VX.map((x) => <th key={x} className="px-3 py-2 text-right">{x}</th>)}</tr></thead>
-                <tbody><tr><td className="px-3 py-2 text-left text-sub">적중률%</td>{CAL_VY.map((y, i) => <td key={i} className="px-3 py-2 text-right text-ink">{y}</td>)}</tr></tbody>
+                <tbody><tr><td className="px-3 py-2 text-left text-sub">승·패 적중률%</td>{CAL_VY.map((y, i) => <td key={i} className="px-3 py-2 text-right text-ink">{y}</td>)}</tr><tr><td className="px-3 py-2 text-left text-sub">무 적중률%</td>{CAL_VY_DRAW.map((y, i) => <td key={i} className="px-3 py-2 text-right text-ink">{y}</td>)}</tr></tbody>
               </table>
             </div>
           </section>

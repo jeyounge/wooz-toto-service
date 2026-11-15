@@ -1,4 +1,4 @@
-import { CAL_VX, CAL_VY, AWAY_COVER, BASE_RATES, METHODOLOGY_VERSION } from '@/lib/methodology';
+import { CAL_VX, CAL_VY, CAL_VY_DRAW, AWAY_COVER, BASE_RATES, METHODOLOGY_VERSION } from '@/lib/methodology';
 import ResponsibleNotice from '@/components/ResponsibleNotice';
 
 export const metadata = {
@@ -23,7 +23,7 @@ export default function MethodologyPage() {
       <section className="mt-10">
         <h2 className="font-display text-lg font-bold text-ink">캘리브레이션 곡선 (투표율 → 적중률)</h2>
         <p className="mt-2 font-sans text-sm text-sub">
-          엑셀 11,834경기 기준. 투표율 버킷별 실제 적중률을 보간해 세 결과를 재정규화합니다.
+          엑셀 11,834경기 기준. 투표율 버킷별 실제 적중률을 보간해 세 결과를 재정규화합니다. 무는 투표가 많이 몰려도 실제 무 비율이 25~30%에서 잘 오르지 않아 전용 곡선을 씁니다(v1.1, 11,606경기).
         </p>
         <div className="mt-4 overflow-x-auto rounded-xl border border-line bg-card">
           <table className="w-full font-mono text-xs">
@@ -37,8 +37,14 @@ export default function MethodologyPage() {
             </thead>
             <tbody>
               <tr>
-                <td className="px-3 py-2 text-left text-sub">적중률 %</td>
+                <td className="px-3 py-2 text-left text-sub">승·패 적중률 %</td>
                 {CAL_VY.map((y, i) => (
+                  <td key={i} className="px-3 py-2 text-right text-ink">{y}</td>
+                ))}
+              </tr>
+              <tr>
+                <td className="px-3 py-2 text-left text-sub">무 적중률 %</td>
+                {CAL_VY_DRAW.map((y, i) => (
                   <td key={i} className="px-3 py-2 text-right text-ink">{y}</td>
                 ))}
               </tr>

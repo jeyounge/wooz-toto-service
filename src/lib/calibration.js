@@ -1,8 +1,8 @@
 /**
  * calibration.js — 투표율 → 적중률 보간 (방법론 §캘리브레이션)
- * 순수함수. CAL_VX/CAL_VY(methodology.js)로 세 결과를 각각 보간 후 합=100 재정규화.
+ * 순수함수. 승·패는 CAL_VY, 무는 CAL_VY_DRAW(methodology.js)로 각각 보간 후 합=100 재정규화.
  */
-import { CAL_VX, CAL_VY } from './methodology.js';
+import { CAL_VX, CAL_VY, CAL_VY_DRAW } from './methodology.js';
 
 /**
  * 조각별 선형보간. 범위 밖은 끝값으로 클램프.
@@ -31,14 +31,15 @@ export function interpolate(vx, vy, x) {
  * @param {number} voteH 승 투표율 %
  * @param {number} voteD 무 투표율 %
  * @param {number} voteL 패 투표율 %
- * @param {{vx?:number[], vy?:number[]}} [curve] 곡선 오버라이드(rolling 재적합용)
+ * @param {{vx?:number[], vy?:number[], vyDraw?:number[]}} [curve] 곡선 오버라이드(rolling 재적합용)
  * @returns {{pWin:number, pDraw:number, pLose:number}}
  */
 export function calibrateVotes(voteH, voteD, voteL, curve = {}) {
   const vx = curve.vx ?? CAL_VX;
   const vy = curve.vy ?? CAL_VY;
+  const vyDraw = curve.vyDraw ?? (curve.vy ? curve.vy : CAL_VY_DRAW);
   const rawH = interpolate(vx, vy, voteH);
-  const rawD = interpolate(vx, vy, voteD);
+  const rawD = interpolate(vx, vyDraw, voteD);
   const rawL = interpolate(vx, vy, voteL);
   const sum = rawH + rawD + rawL;
   if (sum <= 0) return { pWin: 0, pDraw: 0, pLose: 0 };

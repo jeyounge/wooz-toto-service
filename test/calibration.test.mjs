@@ -37,10 +37,20 @@ test('calibrateVotes: favorite-longshot — 고투표율은 재정규화 후 소
   assert.ok(pWin > 50, `pWin ${pWin} > 50 (여전히 최상위)`);
 });
 
-test('calibrateVotes: 대칭 입력 → 대칭 출력', () => {
+test('calibrateVotes: 승·패 대칭, 무는 전용 곡선으로 하향', () => {
   const r = calibrateVotes(33.3, 33.3, 33.3);
+  near(r.pWin, r.pLose, 1e-6);
+  assert.ok(r.pDraw < r.pWin, `pDraw ${r.pDraw} < pWin ${r.pWin}`);
+});
+
+test('calibrateVotes: 무 투표 40% → 무 확률 약 30% (공통 곡선이면 38%대)', () => {
+  const { pDraw } = calibrateVotes(30, 40, 30);
+  assert.ok(pDraw > 26 && pDraw < 33, `pDraw ${pDraw}`);
+});
+
+test('calibrateVotes: 곡선 오버라이드 vy만 주면 무에도 같은 곡선', () => {
+  const r = calibrateVotes(33.3, 33.3, 33.3, { vy: CAL_VY });
   near(r.pWin, r.pDraw, 1e-6);
-  near(r.pDraw, r.pLose, 1e-6);
 });
 
 test('calibrateVotes: 0/0/0 → 균등 (각 baseline 3% 동일 → 재정규화 33.3)', () => {

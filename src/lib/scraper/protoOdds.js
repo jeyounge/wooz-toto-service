@@ -32,7 +32,8 @@ const PAIR = /^(\d+\.\d{2})(\d+\.\d{2})(?:\s*\(\s*(-?\d+(?:\.\d+)?)\s*\))?$/;
 
 /** "1.731.85( 0.12 )" → { open: 1.73, now: 1.85, move: +0.12 } */
 function parsePair(cell) {
-  const m = PAIR.exec(clean(cell));
+  // 2026-10부터 숫자 사이에 방해 문자가 섞여 나온다: "2.'142..12( 0.02 )" = 2.14 → 2.12.
+  const m = PAIR.exec(clean(cell).replace(/['​]/g, '').replace(/\.{2,}/g, '.'));
   if (!m) return null;
   const open = parseFloat(m[1]);
   const now = parseFloat(m[2]);
