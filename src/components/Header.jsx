@@ -25,6 +25,7 @@ export default function Header() {
 
   const links = [
     { to: '/', label: '홈' },
+    { to: '/proto', label: '승부식' },
     { to: '/methodology', label: '방법론' },
   ];
 
@@ -46,7 +47,7 @@ export default function Header() {
                 key={link.to}
                 href={link.to}
                 className={`px-4 py-2 rounded-full text-sm font-medium transition-colors duration-200 ${
-                  pathname === link.to
+                  (pathname === link.to || (link.to !== '/' && pathname?.startsWith(link.to + '/')))
                     ? 'bg-pine/10 text-pine'
                     : 'text-sub hover:text-pine hover:bg-card'
                 }`}
@@ -73,7 +74,7 @@ export default function Header() {
                   key={link.to}
                   href={link.to}
                   className={`px-4 py-3 rounded-xl text-sm font-medium transition-colors duration-200 ${
-                    pathname === link.to ? 'bg-pine/10 text-pine' : 'text-ink hover:bg-card'
+                    (pathname === link.to || (link.to !== '/' && pathname?.startsWith(link.to + '/'))) ? 'bg-pine/10 text-pine' : 'text-ink hover:bg-card'
                   }`}
                 >
                   {link.label}

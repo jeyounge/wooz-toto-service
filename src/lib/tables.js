@@ -26,4 +26,7 @@ export const TABLES = {
   calibration: t('calibration'),
   teams: t('teams'),
   retros: t('retros'),
+  protoRounds: t('proto_rounds'),
+  protoGames: t('proto_games'),
+  protoPreds: t('proto_preds'),
 };
