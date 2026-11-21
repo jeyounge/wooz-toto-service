@@ -47,7 +47,7 @@ export async function getProtoAccuracy() {
   const games = [];
   for (let from = 0; from < 50000; from += 1000) {
     const { data, error } = await s.from(TABLES.protoGames)
-      .select(`sport, league, league_short, bet_type, result_idx, odds_w, odds_d, odds_l, preds:${TABLES.protoPreds}!inner(${PRED_COLS})`)
+      .select(`sport, league, league_short, bet_type_id, bet_type, result_idx, odds_w, odds_d, odds_l, preds:${TABLES.protoPreds}!inner(${PRED_COLS})`)
       .not('result_idx', 'is', null).range(from, from + 999);
     if (error) throw new Error(`getProtoAccuracy: ${error.message}`);
     games.push(...(data || []));

@@ -2,6 +2,7 @@
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import ResponsibleNotice from '@/components/ResponsibleNotice';
+import { BET_GROUPS, roundSummary } from '@/lib/proto/accuracy';
 
 const SPORT_ORDER = ['SC', 'BK', 'VL', 'BS'];
 const SPORT_LABEL = { SC: '축구', BK: '농구', VL: '배구', BS: '야구' };
@@ -65,9 +66,78 @@ function OptionCell({ g, i }) {
   );
 }
 
+/** 회차 적중 요약: 유형군 카드(현재 종목·리그) + 종목 × 유형군 표(회차 전체) */
+function RoundSummary({ scoped, scopeLabel, games, sports }) {
+  const s = roundSummary(scoped);
+  const cards = [{ id: 'all', label: '전체', desc: '예측한 모든 게임' }, ...BET_GROUPS];
+  const bySport = sports.map((c) => ({ c, s: roundSummary(games.filter((g) => g.sport_code === c)) }));
+  const total = roundSummary(games);
+  const cell = (o) => {
+    if (!o || !o.pred) return <span className="text-line">—</span>;
+    if (!o.settled) return <span className="text-sub">대기 {o.pending}</span>;
+    return <><b className="text-ink">{pct(o.rate)}</b> <span className="text-sub">({o.hit}/{o.settled})</span></>;
+  };
+  return (
+    <section className="mt-6 rounded-xl border border-line bg-card p-4">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="font-display text-base font-bold text-ink">이번 회차 적중 요약</h2>
+        <span className="font-mono text-[11px] text-sub">{scopeLabel}</span>
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-5">
+        {cards.map((c) => {
+          const o = s[c.id];
+          const diff = o?.rate != null && o?.exp != null ? o.rate - o.exp : null;
+          return (
+            <div key={c.id} className={`rounded-lg p-3 ${c.id === 'all' ? 'bg-pine/5 ring-1 ring-pine/20' : 'bg-paper'}`} title={c.desc}>
+              <div className="text-xs font-semibold text-ink">{c.label}</div>
+              {!o?.pred ? (
+                <div className="mt-1 font-mono text-lg text-line">—</div>
+              ) : o.settled ? (
+                <>
+                  <div className="mt-1 font-mono text-xl font-bold tabular-nums text-ink">{pct(o.rate, 1)}</div>
+                  <div className="font-mono text-[11px] tabular-nums text-sub">적중 {o.hit}/{o.settled}</div>
+                  <div className={`font-mono text-[10px] tabular-nums ${diff >= 0 ? 'text-pine' : 'text-away'}`}>예상 {pct(o.exp, 1)} ({diff >= 0 ? '+' : ''}{(diff * 100).toFixed(1)}%p)</div>
+                </>
+              ) : (
+                <div className="mt-1 font-mono text-lg text-sub">대기</div>
+              )}
+              {o?.pending > 0 && <div className="mt-0.5 font-mono text-[10px] text-sub">결과 대기 {o.pending}</div>}
+            </div>
+          );
+        })}
+      </div>
+      {sports.length > 1 && (
+        <div className="mt-3 overflow-x-auto">
+          <table className="w-full min-w-[520px] text-xs">
+            <thead><tr className="border-b border-line text-left font-mono text-[10px] text-sub">
+              <th className="px-2 py-1.5">회차 전체</th><th className="px-2 py-1.5">전체</th>
+              {BET_GROUPS.map((b) => <th key={b.id} className="px-2 py-1.5">{b.label}</th>)}
+            </tr></thead>
+            <tbody className="font-mono tabular-nums">
+              {bySport.map(({ c, s: ss }) => (
+                <tr key={c} className="border-b border-line/50">
+                  <td className="px-2 py-1.5 font-sans font-medium text-ink">{SPORT_LABEL[c] || c}</td>
+                  <td className="px-2 py-1.5">{cell(ss.all)}</td>
+                  {BET_GROUPS.map((b) => <td key={b.id} className="px-2 py-1.5">{cell(ss[b.id])}</td>)}
+                </tr>
+              ))}
+              <tr>
+                <td className="px-2 py-1.5 font-sans font-semibold text-ink">합계</td>
+                <td className="px-2 py-1.5">{cell(total.all)}</td>
+                {BET_GROUPS.map((b) => <td key={b.id} className="px-2 py-1.5">{cell(total[b.id])}</td>)}
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      )}
+      <p className="mt-2 text-[11px] text-sub">적중 = 예측 픽(최고 확률 선택지)이 베트맨 공식 결과와 일치. 예상 = 예측 확률 평균. 적중특례·예측 전 시작 경기는 제외.</p>
+    </section>
+  );
+}
+
 function AccuracyPanel({ acc }) {
   const [axis, setAxis] = useState('sport');
-  const AXES = [{ id: 'sport', label: '종목' }, { id: 'league', label: '리그' }, { id: 'type', label: '유형' }, { id: 'flag', label: '플래그' }, { id: 'source', label: '확률원천' }];
+  const AXES = [{ id: 'sport', label: '종목' }, { id: 'league', label: '리그' }, { id: 'group', label: '유형군' }, { id: 'type', label: '세부유형' }, { id: 'flag', label: '플래그' }, { id: 'source', label: '확률원천' }];
   const total = acc?.total?.['전체'];
   if (!total) return (
     <section className="mt-10 rounded-xl border border-line bg-card p-5">
@@ -190,6 +260,13 @@ export default function ProtoBoard({ round, games, rounds, accuracy }) {
           );
         })}
       </div>
+
+      <RoundSummary
+        scoped={inLeague}
+        scopeLabel={`${SPORT_LABEL[sport] || sport} · ${league === 'all' ? '전체 리그' : leagues.find((l) => l.id === league)?.label}`}
+        games={games}
+        sports={sports}
+      />
 
       <div className="mt-4 space-y-2">
         <Chips items={leagues} value={league} onChange={pickLeague} />

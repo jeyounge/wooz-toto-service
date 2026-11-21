@@ -65,6 +65,23 @@ test('nameSim: 한글 정식명 ↔ ESPN 영문명 — 같은 시각 챔피언�
   }
 });
 
+test('roundSummary: 유형군(일반/핸디/언오버/홀짝)별 적중·대기, 특례 제외', async () => {
+  const { roundSummary, betGroup } = await import('../src/lib/proto/accuracy.js');
+  assert.equal(betGroup('1'), 'normal'); assert.equal(betGroup('13'), 'handi'); assert.equal(betGroup('7'), 'ou'); assert.equal(betGroup('9'), 'oe');
+  const P = (pick, prob = 0.6) => ({ pick_idx: pick, pick_prob: prob });
+  const s = roundSummary([
+    { bet_type_id: '1', result_idx: 0, pred: P(0) },   // 일반 적중
+    { bet_type_id: '2', result_idx: 2, pred: P(0) },   // 일반 실패
+    { bet_type_id: '4', result_idx: 1, pred: P(1) },   // 핸디 적중
+    { bet_type_id: '7', result_idx: null, pred: P(0) },// 언오버 대기
+    { bet_type_id: '9', result_idx: 4, pred: P(0) },   // 홀짝 특례 → 제외
+    { bet_type_id: '1', result_idx: 0, pred: null },   // 예측 없음 → 제외
+  ]);
+  assert.deepEqual([s.all.hit, s.all.settled, s.all.pending], [2, 3, 1]);
+  assert.equal(s.normal.rate, 0.5); assert.equal(s.handi.rate, 1);
+  assert.equal(s.ou.pending, 1); assert.equal(s.oe.settled, 0);
+});
+
 test('isHit: 특례(4)·미정은 null', () => {
   assert.equal(isHit(4, 0), null);
   assert.equal(isHit(null, 0), null);
