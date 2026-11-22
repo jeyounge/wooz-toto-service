@@ -13,6 +13,10 @@ export const BET_GROUPS = [
   { id: 'ou', label: '언오버', desc: '총점 기준', ids: ['7'] },
   { id: 'oe', label: '홀짝', desc: '총점 홀/짝', ids: ['9'] },
 ];
+/** 전반전 마켓 여부 (베트맨 betNm에 '전반') */
+export const isFirstHalf = (g) => /전반/.test(g?.bet_name || '');
+/** 화면·집계용 유형 이름: '전반 승무패', '정수핸디캡' … */
+export const typeLabel = (g) => `${isFirstHalf(g) ? '전반 ' : ''}${String(g.bet_type || '').replace('일반 ', '')}`;
 export function betGroup(betTypeId) {
   return BET_GROUPS.find((g) => g.ids.includes(String(betTypeId)))?.id || 'etc';
 }
@@ -67,7 +71,7 @@ export function aggregateAccuracy(games) {
     add(acc.sport, g.sport, r);
     add(acc.league, `${g.sport} · ${g.league_short || g.league}`, r);
     add(acc.group, BET_GROUPS.find((b) => b.id === betGroup(g.bet_type_id))?.label || '기타', r);
-    add(acc.type, g.bet_type, r);
+    add(acc.type, typeLabel(g), r);
     add(acc.source, p.prob_source, r);
     for (const f of p.flags || []) add(acc.flag, f, r);
     if (!(p.flags || []).includes('국내과열')) add(acc.flag, '과열 아님', r);

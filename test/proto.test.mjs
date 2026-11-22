@@ -88,3 +88,72 @@ test('isHit: 특례(4)·미정은 null', () => {
   assert.equal(isHit(2, 2), true);
   assert.equal(isHit(1, 0), false);
 });
+
+test('retro: 실제 스코어 복원 — 전반전 마켓은 분리, 핸디 행은 핸디를 빼서', async () => {
+  const { rawScoreOf, outcomeIdx } = await import('../src/lib/proto/retro.js');
+  const rows = [
+    { bet_type_id: '1', bet_name: '축구 승무패', result_score: '0:1' },
+    { bet_type_id: '1', bet_name: '축구 전반 승무패', result_score: '0:0' },
+  ];
+  assert.deepEqual(rawScoreOf(rows), [0, 1]);
+  assert.deepEqual(rawScoreOf(rows, true), [0, 0]);
+  assert.deepEqual(rawScoreOf([{ bet_type_id: '4', handi: -2, result_score: '-1:4' }]), [1, 4]);
+  // 베트맨 결과 재현 (138회차 실제 행)
+  assert.equal(outcomeIdx('4', 2, 0, -2), 1);   // 본머스 2:0, -2 → 무
+  assert.equal(outcomeIdx('5', 4, 0, -3.5), 0); // 레버쿠젠 4:0, -3.5 → 승
+  assert.equal(outcomeIdx('7', 1, 4, 2.5), 2);  // 총점 5 > 2.5 → 오버
+  assert.equal(outcomeIdx('9', 1, 4), 0);       // 5 홀
+});
+
+test('retro: 막판골·PK·내용 우세는 변수, 기준선 1골 이내는 근소, 나머지는 판단 실패', async () => {
+  const { classifyPred, verdictOf } = await import('../src/lib/proto/retro.js');
+  const base = { sport_code: 'SC', bet_type_id: '1', handi: 0, txt_w: '승', txt_d: '무', txt_l: '패' };
+  // 세비야 1-1 베티스: 패 픽, 90+1' 동점골
+  const late = classifyPred({ ...base, result_idx: 1 }, { pick_idx: 2, pick_prob: 0.39, flags: [] }, [1, 1],
+    { goals: [{ base: 50, min: "50'", side: 'a', pen: false }, { base: 90, min: "90+1'", side: 'h', pen: false }], reds: [], shots: { h: 25, a: 6 }, sot: { h: 6, a: 3 } });
+  assert.ok(late.tags.includes('late_goal')); assert.equal(verdictOf(late.tags), 'luck');
+  assert.match(late.note, /90\+1' 골/);
+  // 라요 0-1 발렌시아: 승 픽, 슈팅 21:11 → 내용 우세
+  const dom = classifyPred({ ...base, result_idx: 2 }, { pick_idx: 0, pick_prob: 0.6, flags: [] }, [0, 1],
+    { goals: [{ base: 41, min: "41'", side: 'a', pen: false }], reds: [], shots: { h: 21, a: 11 }, sot: { h: 5, a: 2 } });
+  assert.ok(dom.tags.includes('dominated'));
+  // 첼시 1-4 리즈 승 픽: PK 빼도 패 → PK 태그 없음, 슈팅 열세 → 판단 실패
+  const read = classifyPred({ ...base, result_idx: 2 }, { pick_idx: 0, pick_prob: 0.6, flags: ['국내과열'] }, [1, 4],
+    { goals: [{ base: 25, side: 'h' }, { base: 28, side: 'a' }, { base: 53, side: 'a', pen: true, min: "53'" }, { base: 58, side: 'a' }, { base: 90, side: 'a', min: "90+1'" }], reds: [], shots: { h: 14, a: 21 }, sot: { h: 3, a: 8 } });
+  assert.ok(!read.tags.includes('penalty') && !read.tags.includes('late_goal'));
+  assert.ok(read.tags.includes('overheat')); assert.equal(verdictOf(read.tags), 'read');
+  // 핸디 -1 승 픽인데 1골 차 승 → 무: 한 끗(근소)
+  const m = classifyPred({ ...base, bet_type_id: '4', handi: -1, result_idx: 1 }, { pick_idx: 0, pick_prob: 0.6, flags: [] }, [2, 1], null);
+  assert.deepEqual(m.tags, ['margin']); assert.equal(verdictOf(m.tags), 'close');
+  // 오버 픽 1:0인데 유효슈팅 12 → 기회 무산
+  const w = classifyPred({ ...base, bet_type_id: '7', handi: 2.5, result_idx: 0, result_score: '1:0' }, { pick_idx: 2, pick_prob: 0.58, flags: [] }, [1, 0],
+    { goals: [{ base: 30, side: 'h' }], reds: [], shots: { h: 22, a: 12 }, sot: { h: 10, a: 2 } });
+  assert.ok(w.tags.includes('wasteful'));
+  // 적중은 태그 없음, 특례는 null
+  assert.deepEqual(classifyPred({ ...base, result_idx: 0 }, { pick_idx: 0, pick_prob: 0.6 }, [1, 0], null).tags, []);
+  assert.equal(classifyPred({ ...base, result_idx: 4 }, { pick_idx: 0, pick_prob: 0.6 }, [1, 0], null), null);
+});
+
+test('retro: 배구 언오버는 자기 행 총점으로 근소 판정 (세트 스코어 아님)', async () => {
+  const { classifyPred } = await import('../src/lib/proto/retro.js');
+  const r = classifyPred({ sport_code: 'VL', bet_type_id: '7', handi: 183.5, result_idx: 2, result_score: '184:0', txt_w: '언더', txt_l: '오버' },
+    { pick_idx: 0, pick_prob: 0.56, flags: [] }, [3, 1], null);
+  assert.ok(r.tags.includes('margin')); assert.match(r.note, /총점 184/);
+});
+
+test('retro: 회차 요약 — 판정 집계·판단 실패는 확률 높은 순', async () => {
+  const { roundRetro } = await import('../src/lib/proto/retro.js');
+  const G = (prob, hit, tags) => ({ sport: '축구', league_short: 'EPL', bet_type: '승무패', bet_type_id: '1', result_idx: hit ? 0 : 2,
+    pred: { pick_idx: 0, pick_prob: prob, miss_tags: hit ? [] : tags, retro_note: hit ? null : 'x' } });
+  const r = roundRetro([G(0.8, false, ['upset']), G(0.6, false, ['late_goal']), G(0.7, false, []), G(0.6, true), G(0.55, false, null)]);
+  assert.equal(r.misses, 4); assert.equal(r.done, 3);
+  assert.deepEqual(r.verdict, { luck: 1, close: 0, read: 2 });
+  assert.deepEqual(r.worst.map((g) => g.pred.pick_prob), [0.8, 0.7]);
+});
+
+test('typeLabel: 전반전 마켓 구분', async () => {
+  const { typeLabel, isFirstHalf } = await import('../src/lib/proto/accuracy.js');
+  assert.equal(typeLabel({ bet_type: '승무패', bet_name: '축구 전반 승무패' }), '전반 승무패');
+  assert.equal(typeLabel({ bet_type: '일반 정수핸디캡', bet_name: '축구 핸디캡' }), '정수핸디캡');
+  assert.equal(isFirstHalf({}), false);
+});

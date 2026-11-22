@@ -127,3 +127,102 @@ export async function matchExternal(items) {
   }
   return out;
 }
+
+// ---- 복기용: 끝난 경기 기록 (골 시간·PK·퇴장·슈팅) ----
+
+/** ESPN 스코어보드의 끝난 경기 (배당 유무 무관) */
+async function fetchEspnFinals(path, dates) {
+  const out = [];
+  for (const d of dates) {
+    let j;
+    try {
+      const r = await fetch(`https://site.api.espn.com/apis/site/v2/sports/${path}/scoreboard?dates=${d}`, { signal: AbortSignal.timeout(20000) });
+      j = await r.json();
+    } catch { continue; }
+    for (const e of j.events || []) {
+      const c = e.competitions?.[0];
+      if (!c?.status?.type?.completed) continue;
+      const h = c.competitors.find((t) => t.homeAway === 'home'), a = c.competitors.find((t) => t.homeAway === 'away');
+      if (!h || !a) continue;
+      out.push({ id: e.id, ts: new Date(e.date).getTime(), home: h.team?.displayName || '', away: a.team?.displayName || '', homeId: h.team?.id, score: [Number(h.score), Number(a.score)] });
+    }
+  }
+  return out;
+}
+
+/**
+ * 끝난 프로토 경기 ↔ ESPN 이벤트 매칭: 킥오프 ±20분 + 스코어 일치 + 이름 유사도 최고.
+ * 스코어가 같아야 하므로 배당 없이도 오매칭이 거의 없다.
+ * @param {Array<{key, league_code, game_ts, home, away, raw:number[]}>} items
+ * @returns {Promise<Map<string, {path, id, homeId, label}>>}
+ */
+export async function matchEspnFinals(items) {
+  const out = new Map();
+  const byLeague = new Map();
+  for (const it of items) {
+    if (!ESPN_LEAGUES[it.league_code] || !it.game_ts || !it.raw) continue;
+    if (!byLeague.has(it.league_code)) byLeague.set(it.league_code, []);
+    byLeague.get(it.league_code).push(it);
+  }
+  for (const [code, list] of byLeague) {
+    const path = ESPN_LEAGUES[code];
+    const dates = [...new Set(list.flatMap((it) => { const t = new Date(it.game_ts).getTime(); return [ymd(t - 864e5), ymd(t)]; }))];
+    const evs = await fetchEspnFinals(path, dates);
+    const pairs = [];
+    for (const it of list) {
+      const t = new Date(it.game_ts).getTime();
+      for (const ev of evs) {
+        if (Math.abs(ev.ts - t) > TS_WINDOW || ev.score[0] !== it.raw[0] || ev.score[1] !== it.raw[1]) continue;
+        pairs.push({ it, ev, sim: (nameSim(it.home, ev.home) + nameSim(it.away, ev.away)) / 2 });
+      }
+    }
+    pairs.sort((a, b) => b.sim - a.sim);
+    const usedIt = new Set(), usedEv = new Set();
+    for (const { it, ev, sim } of pairs) {
+      if (sim < 0.2 || usedIt.has(it.key) || usedEv.has(ev.id)) continue;
+      usedIt.add(it.key); usedEv.add(ev.id);
+      out.set(it.key, { path, id: ev.id, homeId: ev.homeId, label: `${ev.home} vs ${ev.away}` });
+    }
+  }
+  return out;
+}
+
+/** "90'+1'" → { min: "90+1'", base: 90 } */
+function parseClock(s) {
+  const m = String(s || '').match(/(\d+)'?(?:\+(\d+))?/);
+  if (!m) return null;
+  return { base: Number(m[1]), min: m[2] ? `${m[1]}+${m[2]}'` : `${m[1]}'` };
+}
+
+/**
+ * ESPN 경기 요약 → 복기 컨텍스트 (축구 전용).
+ * 골 집계가 최종 스코어와 안 맞으면(자책골 귀속 등) goals는 비워서 막판골·PK 판정을 하지 않는다.
+ * @returns {Promise<{goals, reds, shots, sot}|null>}
+ */
+export async function fetchMatchContext({ path, id, homeId }, raw) {
+  let s;
+  try {
+    const r = await fetch(`https://site.api.espn.com/apis/site/v2/sports/${path}/summary?event=${id}`, { signal: AbortSignal.timeout(20000) });
+    s = await r.json();
+  } catch { return null; }
+  const side = (teamId) => (String(teamId) === String(homeId) ? 'h' : 'a');
+  const goals = [], reds = [];
+  for (const k of s.keyEvents || []) {
+    const type = k.type?.text || '';
+    const c = parseClock(k.clock?.displayValue);
+    if (!c || !k.team?.id) continue;
+    if (k.scoringPlay) goals.push({ ...c, side: side(k.team.id), pen: /penalty/i.test(type) });
+    else if (/red card/i.test(type)) reds.push({ min: c.min, side: side(k.team.id) });
+  }
+  const tally = goals.reduce((t, g) => { t[g.side === 'h' ? 0 : 1]++; return t; }, [0, 0]);
+  const goalsOk = raw && tally[0] === raw[0] && tally[1] === raw[1];
+  const stat = (name) => {
+    const v = {};
+    for (const t of s.boxscore?.teams || []) {
+      const x = (t.statistics || []).find((st) => st.name === name);
+      if (x) v[side(t.team?.id)] = Number(x.displayValue);
+    }
+    return v.h != null && v.a != null ? v : null;
+  };
+  return { goals: goalsOk ? goals : [], reds, shots: stat('totalShots'), sot: stat('shotsOnTarget') };
+}

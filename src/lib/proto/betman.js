@@ -69,6 +69,7 @@ export async function fetchProtoRound(gmTs) {
       end_ts: iso(r.endDate),
       bet_type_id: String(r.betTypId),
       bet_type: r.betTypNm,
+      bet_name: r.betNm || null,
       handi: num(r.winHandi),
       txt_w: r.winTxt || null,
       txt_d: r.drawTxt && r.drawTxt !== '-' ? r.drawTxt : null,

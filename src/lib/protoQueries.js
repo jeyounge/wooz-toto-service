@@ -7,9 +7,9 @@ import { MODEL_VERSION } from './proto/predict.js';
 import { aggregateAccuracy } from './proto/accuracy.js';
 
 const GAME_COLS = `id, match_seq, sport_code, sport, league_code, league, league_short, home, away, game_ts, end_ts,
-  bet_type_id, bet_type, handi, txt_w, txt_d, txt_l, odds_w, odds_d, odds_l, bets_w, bets_d, bets_l,
+  bet_type_id, bet_type, bet_name, handi, txt_w, txt_d, txt_l, odds_w, odds_d, odds_l, bets_w, bets_d, bets_l,
   proto_status, result_idx, result_score`;
-const PRED_COLS = 'model_version, p_w, p_d, p_l, prob_source, pick_idx, pick_prob, pick_odds, value_idx, value_ev, crowd_share, flags';
+const PRED_COLS = 'model_version, p_w, p_d, p_l, prob_source, pick_idx, pick_prob, pick_odds, value_idx, value_ev, crowd_share, flags, miss_tags, retro_note';
 
 /** 회차 목록 (최신순) */
 export async function getProtoRounds(limit = 60) {
@@ -47,7 +47,7 @@ export async function getProtoAccuracy() {
   const games = [];
   for (let from = 0; from < 50000; from += 1000) {
     const { data, error } = await s.from(TABLES.protoGames)
-      .select(`sport, league, league_short, bet_type_id, bet_type, result_idx, odds_w, odds_d, odds_l, preds:${TABLES.protoPreds}!inner(${PRED_COLS})`)
+      .select(`sport, league, league_short, bet_type_id, bet_type, bet_name, result_idx, odds_w, odds_d, odds_l, preds:${TABLES.protoPreds}!inner(${PRED_COLS})`)
       .not('result_idx', 'is', null).range(from, from + 999);
     if (error) throw new Error(`getProtoAccuracy: ${error.message}`);
     games.push(...(data || []));

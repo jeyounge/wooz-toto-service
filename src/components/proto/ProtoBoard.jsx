@@ -2,7 +2,8 @@
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import ResponsibleNotice from '@/components/ResponsibleNotice';
-import { BET_GROUPS, roundSummary } from '@/lib/proto/accuracy';
+import { BET_GROUPS, roundSummary, typeLabel } from '@/lib/proto/accuracy';
+import { TAGS, VERDICTS, verdictOf, roundRetro } from '@/lib/proto/retro';
 
 const SPORT_ORDER = ['SC', 'BK', 'VL', 'BS'];
 const SPORT_LABEL = { SC: '축구', BK: '농구', VL: '배구', BS: '야구' };
@@ -13,8 +14,13 @@ const FILTERS = [
   { id: 'value', label: '가치(EV≥1)', test: (g) => g.pred?.flags?.includes('가치') },
   { id: 'ext', label: '해외배당', test: (g) => g.pred && g.pred.prob_source !== 'domestic' },
   { id: 'settled', label: '결과확정', test: (g) => g.result_idx != null },
+  { id: 'miss', label: '오답', test: (g) => g.pred?.miss_tags != null && g.pred.retro_note != null },
+  { id: 'read', label: '판단 실패', test: (g) => g.pred?.retro_note != null && verdictOf(g.pred.miss_tags) === 'read' },
 ];
 
+const VERDICT_CLS = { luck: 'bg-draw/10 text-draw', close: 'bg-paper text-sub', read: 'bg-away/10 text-away' };
+/** 중복 선택 토글: '전체'는 비우기, 마지막 하나를 끄면 전체 */
+const toggle = (list, id) => (id === 'all' ? [] : list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);
 const pct = (x, d = 0) => (x == null ? '-' : `${(Number(x) * 100).toFixed(d)}%`);
 const fmtTs = (ts) => (ts ? new Intl.DateTimeFormat('ko-KR', { timeZone: 'Asia/Seoul', month: 'numeric', day: 'numeric', weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(ts)) : '-');
 const roundLabel = (gmTs) => `${String(gmTs).slice(0, 2)}년 ${Number(String(gmTs).slice(2))}회차`;
@@ -24,12 +30,16 @@ const handiLabel = (g) => {
   return ` ${Number(g.handi) > 0 ? '+' : ''}${g.handi}`;
 };
 
-function Chips({ items, value, onChange }) {
+/** 칩 선택. value가 배열이면 중복 선택(빈 배열 = 전체), 아니면 단일 선택 */
+function Chips({ items, value, onChange, label }) {
+  const multi = Array.isArray(value);
+  const isOn = (id) => (multi ? (id === 'all' ? value.length === 0 : value.includes(id)) : value === id);
   return (
-    <div className="flex flex-wrap gap-1.5">
+    <div className="flex flex-wrap items-center gap-1.5">
+      {label && <span className="mr-1 font-mono text-[10px] text-sub">{label}</span>}
       {items.map((it) => (
-        <button key={it.id} onClick={() => onChange(it.id)}
-          className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${value === it.id ? 'border-pine bg-pine text-white' : 'border-line bg-card text-sub hover:text-pine'}`}>
+        <button key={it.id} onClick={() => onChange(it.id)} aria-pressed={isOn(it.id)}
+          className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${isOn(it.id) ? 'border-pine bg-pine text-white' : 'border-line bg-card text-sub hover:text-pine'}`}>
           {it.label}{it.count != null && <span className="ml-1 font-mono opacity-70">{it.count}</span>}
         </button>
       ))}
@@ -135,6 +145,73 @@ function RoundSummary({ scoped, scopeLabel, games, sports }) {
   );
 }
 
+/** 자동 복기: 오답을 변수/근소/판단 실패로 나누고, 예상보다 덜·더 맞은 구간과 판단 실패 상위를 보여준다 */
+function RetroPanel({ scoped, scopeLabel }) {
+  const r = roundRetro(scoped);
+  const tagRows = Object.entries(r.tags).sort((a, b) => b[1] - a[1]);
+  return (
+    <section className="mt-4 rounded-xl border border-line bg-card p-4">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="font-display text-base font-bold text-ink">자동 복기</h2>
+        <span className="font-mono text-[11px] text-sub">{scopeLabel} · 오답 {r.misses} · 복기 {r.done}</span>
+      </div>
+      {r.done === 0 ? (
+        <p className="mt-2 text-sm text-sub">{r.misses ? '오답 복기는 다음 배치에서 붙습니다.' : '아직 확정된 오답이 없습니다.'}</p>
+      ) : (
+        <>
+          <div className="mt-3 grid grid-cols-3 gap-2">
+            {Object.entries(VERDICTS).map(([k, v]) => (
+              <div key={k} className={`rounded-lg p-3 ${k === 'read' ? 'bg-away/5 ring-1 ring-away/20' : 'bg-paper'}`} title={v.desc}>
+                <div className="text-xs font-semibold text-ink">{v.label}</div>
+                <div className="mt-1 font-mono text-xl font-bold tabular-nums text-ink">{r.verdict[k]}</div>
+                <div className="font-mono text-[10px] tabular-nums text-sub">오답의 {pct(r.verdict[k] / r.done)} · {v.desc}</div>
+              </div>
+            ))}
+          </div>
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {tagRows.map(([k, n]) => (
+              <span key={k} title={TAGS[k]?.desc} className={`rounded-full px-2.5 py-0.5 text-[11px] ${VERDICT_CLS[TAGS[k]?.verdict] || 'bg-pine/10 text-pine'}`}>
+                {TAGS[k]?.label || k} <b className="font-mono">{n}</b>
+              </span>
+            ))}
+          </div>
+          {(r.weak.length > 0 || r.strong.length > 0) && (
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              {[['예상보다 덜 맞은 구간', r.weak, 'text-away'], ['예상보다 잘 맞은 구간', r.strong, 'text-pine']].map(([title, list, cls]) => (
+                <div key={title} className="rounded-lg bg-paper p-3">
+                  <div className="text-xs font-semibold text-ink">{title}</div>
+                  {list.length === 0 ? <div className="mt-1 text-[11px] text-sub">없음 (표본 10+ · ±8%p 기준)</div> : (
+                    <ul className="mt-1 space-y-0.5 font-mono text-[11px] tabular-nums">
+                      {list.slice(0, 5).map((w) => <li key={w.key} className="flex justify-between gap-2"><span className="font-sans text-ink">{w.key}</span><span className={cls}>{pct(w.rate)} vs {pct(w.exp)} ({w.hit}/{w.n})</span></li>)}
+                    </ul>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+          {r.worst.length > 0 && (
+            <div className="mt-3">
+              <div className="text-xs font-semibold text-ink">판단 실패 — 확률 높았던 순</div>
+              <ul className="mt-1 divide-y divide-line/60">
+                {r.worst.map((g) => (
+                  <li key={g.match_seq} className="flex flex-wrap items-baseline gap-x-2 py-1.5 text-xs">
+                    <span className="rounded bg-paper px-1.5 py-0.5 font-mono text-[10px] text-sub">{g.league_short || g.league}</span>
+                    <span className="font-medium text-ink">{g.home} vs {g.away}</span>
+                    <span className="text-sub">{typeLabel(g)}{handiLabel(g)}</span>
+                    <span className="basis-full font-mono text-[11px] text-sub sm:basis-auto">{g.pred.retro_note}</span>
+                    {g.pred.miss_tags.map((k) => <span key={k} className="rounded bg-away/10 px-1 font-mono text-[9px] text-away">{TAGS[k]?.label || k}</span>)}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </>
+      )}
+      <p className="mt-2 text-[11px] text-sub">규칙 기반 자동 분류. 변수 = 막판골·PK·퇴장·내용 우세·기회 무산(해외 리그 축구는 ESPN 경기 기록으로 확인), 근소 = 기준선 1골(농구 3점) 이내·확률 55% 미만 픽. 나머지가 판단 실패 — 다음 규칙 개선은 여기서 찾습니다.</p>
+    </section>
+  );
+}
+
 function AccuracyPanel({ acc }) {
   const [axis, setAxis] = useState('sport');
   const AXES = [{ id: 'sport', label: '종목' }, { id: 'league', label: '리그' }, { id: 'group', label: '유형군' }, { id: 'type', label: '세부유형' }, { id: 'flag', label: '플래그' }, { id: 'source', label: '확률원천' }];
@@ -192,8 +269,8 @@ export default function ProtoBoard({ round, games, rounds, accuracy }) {
   const router = useRouter();
   const sports = useMemo(() => SPORT_ORDER.filter((c) => games.some((g) => g.sport_code === c)), [games]);
   const [sport, setSport] = useState(sports[0] || 'SC');
-  const [league, setLeague] = useState('all');
-  const [type, setType] = useState('all');
+  const [league, setLeague] = useState([]); // 빈 배열 = 전체 리그
+  const [type, setType] = useState([]);
   const [filter, setFilter] = useState('all');
 
   const inSport = useMemo(() => games.filter((g) => g.sport_code === sport), [games, sport]);
@@ -201,15 +278,17 @@ export default function ProtoBoard({ round, games, rounds, accuracy }) {
     const m = new Map(); inSport.forEach((g) => m.set(g.league_code, { id: g.league_code, label: g.league_short || g.league, count: (m.get(g.league_code)?.count || 0) + 1 }));
     return [{ id: 'all', label: '전체', count: inSport.length }, ...[...m.values()].sort((a, b) => b.count - a.count)];
   }, [inSport]);
-  const inLeague = useMemo(() => inSport.filter((g) => league === 'all' || g.league_code === league), [inSport, league]);
+  const inLeague = useMemo(() => inSport.filter((g) => !league.length || league.includes(g.league_code)), [inSport, league]);
   const types = useMemo(() => {
-    const m = new Map(); inLeague.forEach((g) => m.set(g.bet_type_id, { id: g.bet_type_id, label: g.bet_type.replace('일반 ', ''), count: (m.get(g.bet_type_id)?.count || 0) + 1 }));
-    return [{ id: 'all', label: '전체', count: inLeague.length }, ...[...m.values()].sort((a, b) => Number(a.id) - Number(b.id))];
+    const m = new Map(); inLeague.forEach((g) => { const k = typeLabel(g); m.set(k, { id: k, label: k, ord: Number(g.bet_type_id) + (k.startsWith('전반') ? 100 : 0), count: (m.get(k)?.count || 0) + 1 }); });
+    return [{ id: 'all', label: '전체', count: inLeague.length }, ...[...m.values()].sort((a, b) => a.ord - b.ord)];
   }, [inLeague]);
   const shown = useMemo(() => {
     const f = FILTERS.find((x) => x.id === filter);
-    return inLeague.filter((g) => (type === 'all' || g.bet_type_id === type) && (!f?.test || f.test(g)));
-  }, [inLeague, type, filter]);
+    // 리그를 바꿔 사라진 유형은 무시하고, 남은 선택이 없으면 전체
+    const on = type.filter((t) => types.some((x) => x.id === t));
+    return inLeague.filter((g) => (!on.length || on.includes(typeLabel(g))) && (!f?.test || f.test(g)));
+  }, [inLeague, types, type, filter]);
 
   // 경기별 묶음 (홈·원정·킥오프)
   const groups = useMemo(() => {
@@ -226,8 +305,10 @@ export default function ProtoBoard({ round, games, rounds, accuracy }) {
     return { n: shown.length, pred: pred.length, settled: settled.length, hit, rate: settled.length ? hit / settled.length : null, exp: settled.length ? exp / settled.length : null };
   }, [shown]);
 
-  const pickSport = (c) => { setSport(c); setLeague('all'); setType('all'); };
-  const pickLeague = (c) => { setLeague(c); setType('all'); };
+  const pickSport = (c) => { setSport(c); setLeague([]); setType([]); };
+  const pickLeague = (c) => setLeague((l) => toggle(l, c));
+  const pickType = (c) => setType((t) => toggle(t, c));
+  const scopeLabel = `${SPORT_LABEL[sport] || sport} · ${!league.length ? '전체 리그' : league.map((id) => leagues.find((l) => l.id === id)?.label).filter(Boolean).join('·')}`;
 
   return (
     <div className="mx-auto max-w-6xl px-4 pb-16 pt-24">
@@ -263,15 +344,20 @@ export default function ProtoBoard({ round, games, rounds, accuracy }) {
 
       <RoundSummary
         scoped={inLeague}
-        scopeLabel={`${SPORT_LABEL[sport] || sport} · ${league === 'all' ? '전체 리그' : leagues.find((l) => l.id === league)?.label}`}
+        scopeLabel={scopeLabel}
         games={games}
         sports={sports}
       />
 
+      <RetroPanel
+        scoped={inLeague}
+        scopeLabel={scopeLabel}
+      />
+
       <div className="mt-4 space-y-2">
-        <Chips items={leagues} value={league} onChange={pickLeague} />
-        <Chips items={types} value={type} onChange={setType} />
-        <Chips items={FILTERS} value={filter} onChange={setFilter} />
+        <Chips label="리그 · 중복" items={leagues} value={league} onChange={pickLeague} />
+        <Chips label="유형 · 중복" items={types} value={type} onChange={pickType} />
+        <Chips label="보기" items={FILTERS} value={filter} onChange={setFilter} />
       </div>
 
       <div className="mt-4 flex flex-wrap gap-x-6 gap-y-1 rounded-lg bg-card px-4 py-2.5 font-mono text-xs text-sub">
@@ -296,22 +382,33 @@ export default function ProtoBoard({ round, games, rounds, accuracy }) {
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[560px]">
                   <tbody>
-                    {gs.map((g) => (
-                      <tr key={g.match_seq} className="border-b border-line/50 last:border-0">
+                    {gs.map((g) => [
+                      <tr key={g.match_seq} className={`${g.pred?.retro_note ? '' : 'border-b border-line/50 last:border-0'}`}>
                         <td className="w-36 px-3 py-1.5 align-middle">
-                          <div className="text-xs font-medium text-ink">{g.bet_type.replace('일반 ', '')}{handiLabel(g)}</div>
+                          <div className="text-xs font-medium text-ink">{typeLabel(g)}{handiLabel(g)}</div>
                           <div className="mt-0.5 flex flex-wrap gap-1">
                             <span className="font-mono text-[10px] text-sub">#{g.match_seq}</span>
                             {(g.pred?.flags || []).filter((f) => f !== '가치').map((f) => (
                               <span key={f} className={`rounded px-1 font-mono text-[9px] ${f === '국내과열' ? 'bg-away/10 text-away' : f === '저평가무' ? 'bg-draw/10 text-draw' : 'bg-pine/10 text-pine'}`}>{f}</span>
                             ))}
                             {g.result_idx === 4 && <span className="rounded bg-paper px-1 font-mono text-[9px] text-sub">적중특례</span>}
+                            {g.pred?.retro_note && <span className={`rounded px-1 font-mono text-[9px] ${VERDICT_CLS[verdictOf(g.pred.miss_tags)]}`} title={g.pred.retro_note}>{VERDICTS[verdictOf(g.pred.miss_tags)].label}</span>}
                           </div>
                         </td>
                         {[0, 1, 2].map((i) => <OptionCell key={i} g={g} i={i} />)}
                         <td className="w-20 px-2 text-right font-mono text-[10px] text-sub">{g.result_score || ''}</td>
-                      </tr>
-                    ))}
+                      </tr>,
+                      g.pred?.retro_note && (
+                        <tr key={`${g.match_seq}-r`} className="border-b border-line/50 last:border-0">
+                          <td colSpan={5} className="px-3 pb-1.5 pt-0">
+                            <div className="flex flex-wrap items-center gap-1 text-[10px] text-sub">
+                              <span className="font-mono">{g.pred.retro_note}</span>
+                              {g.pred.miss_tags.map((k) => <span key={k} title={TAGS[k]?.desc} className={`rounded px-1 font-mono text-[9px] ${VERDICT_CLS[TAGS[k]?.verdict] || 'bg-pine/10 text-pine'}`}>{TAGS[k]?.label || k}</span>)}
+                            </div>
+                          </td>
+                        </tr>
+                      ),
+                    ])}
                   </tbody>
                 </table>
               </div>
@@ -330,6 +427,7 @@ export default function ProtoBoard({ round, games, rounds, accuracy }) {
           <li><b className="text-away">국내과열</b>: 예측 픽의 국내 구매 비중이 확률보다 15%p 이상 높을 때. 토토 승무패 복기에서 이런 정배가 자주 깨졌습니다.</li>
           <li><b className="text-draw">저평가무</b>: 무의 국내 배당 × 확률이 0.95 이상. <b className="text-ink">★ 가치 픽</b>: 확률 20% 이상 선택지 중 국내 배당 × 확률이 가장 큰 것.</li>
           <li>예측은 킥오프 전까지만 갱신되고 이후에는 고정됩니다. 결과는 경기 다음 날 배치가 베트맨 공식 결과로 마킹합니다.</li>
+          <li><b className="text-ink">자동 복기</b>: 결과가 나오면 배치가 오답마다 원인 태그를 붙입니다(규칙 기반). 해외 리그 축구는 ESPN 경기 기록(골 시간·PK·퇴장·슈팅)으로 ‘85분 이후 골이 없었다면 적중’ 같은 변수를 확인하고, 변수·근소가 아닌 오답을 판단 실패로 따로 모읍니다. 전반전 마켓은 전반 스코어 기준으로 따로 봅니다.</li>
         </ul>
       </section>
     </div>

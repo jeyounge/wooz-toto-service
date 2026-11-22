@@ -1,13 +1,15 @@
-// 프로토 승부식 배치 — 수집 → 예측 → 결과 마킹 (LLM 없음, service_role).
+// 프로토 승부식 배치 — 수집 → 예측 → 결과 마킹 → 자동 복기 (LLM 없음, service_role).
 // 사용: node scripts/proto-batch.mjs [gmTs...]
 //   인자 없으면: 발매 중 회차 + 결과 대기 경기가 남은 최근 회차를 자동 처리.
-//   PREDICT=0 이면 예측 갱신 생략, NOESPN=1 이면 해외 배당 생략.
+//   PREDICT=0 이면 예측 갱신 생략, NOESPN=1 이면 해외 배당·경기 기록 생략, RETRO=0 이면 복기 생략.
 // 원칙: 예측은 킥오프 전까지만 갱신하고 킥오프 후에는 동결 → 적중률이 사후 보정 없이 기록된다.
 import { readFileSync, appendFileSync, mkdirSync } from 'fs';
 import { createClient } from '@supabase/supabase-js';
 import { listOpenProtoRounds, fetchProtoRound } from '../src/lib/proto/betman.js';
 import { predictGame, devig, isHit, MODEL_VERSION } from '../src/lib/proto/predict.js';
-import { matchExternal } from '../src/lib/proto/espn.js';
+import { matchExternal, matchEspnFinals, fetchMatchContext } from '../src/lib/proto/espn.js';
+import { classifyPred, rawScoreOf, verdictOf } from '../src/lib/proto/retro.js';
+import { isFirstHalf } from '../src/lib/proto/accuracy.js';
 import { TABLES } from '../src/lib/tables.js';
 
 const env = {};
@@ -25,6 +27,13 @@ const log = (...a) => {
   console.log(line);
   if (LOG_FILE) appendFileSync(LOG_FILE, line + '\n');
 };
+
+// 0008(bet_name·복기 컬럼) 미적용 DB에서도 결과 마킹은 계속되게: 컬럼이 없으면 bet_name을 빼고 복기를 건너뛴다.
+const HAS_0008 = await (async () => {
+  const a = await db.from(TABLES.protoGames).select('bet_name').limit(1);
+  const b = await db.from(TABLES.protoPreds).select('retro_ts').limit(1);
+  return !a.error && !b.error;
+})();
 
 async function upsertChunks(table, rows, onConflict, select) {
   const out = [];
@@ -51,8 +60,8 @@ async function processRound(gmTs, saleEndTs) {
   const { data: prev } = await db.from(TABLES.protoGames).select('match_seq, result_idx').eq('round_id', rr.id);
   const prevRes = new Map((prev || []).map((g) => [g.match_seq, g.result_idx]));
   const stamp = new Date().toISOString();
-  const gameRows = rows.map((r) => ({
-    ...r, round_id: rr.id, updated_ts: stamp,
+  const gameRows = rows.map(({ bet_name, ...r }) => ({
+    ...r, ...(HAS_0008 ? { bet_name } : {}), round_id: rr.id, updated_ts: stamp,
     ...(r.result_idx != null && prevRes.get(r.match_seq) == null ? { result_ts: stamp } : {}),
   }));
   // result_ts 키가 있는 행과 없는 행을 나눠 upsert (없는 행에서 기존 result_ts를 지우지 않도록)
@@ -71,7 +80,8 @@ async function processRound(gmTs, saleEndTs) {
     const key = (r) => `${r.home}|${r.away}|${r.game_ts}`;
     let ext = new Map();
     if (process.env.NOESPN !== '1') {
-      const base = upcoming.filter((r) => r.bet_type_id === '1' || r.bet_type_id === '2')
+      // 해외 배당은 풀타임 경기 배당 → 전반전 마켓에는 쓰지 않는다
+      const base = upcoming.filter((r) => (r.bet_type_id === '1' || r.bet_type_id === '2') && !isFirstHalf(r))
         .map((r) => ({ key: key(r), league_code: r.league_code, game_ts: r.game_ts, home: r.home, away: r.away, dom: devig([r.odds_w, r.odds_d, r.odds_l]) }))
         .filter((it) => it.dom.some((x) => x > 0));
       ext = await matchExternal(base);
@@ -79,7 +89,7 @@ async function processRound(gmTs, saleEndTs) {
     }
     const preds = [];
     for (const r of upcoming) {
-      const p = predictGame(r, ext.get(key(r)) || null);
+      const p = predictGame(r, isFirstHalf(r) ? null : ext.get(key(r)) || null);
       if (!p || !idOf.get(r.match_seq)) continue;
       preds.push({ game_id: idOf.get(r.match_seq), ...p, created_ts: stamp });
     }
@@ -95,6 +105,10 @@ async function processRound(gmTs, saleEndTs) {
 
   log(`${gmTs}: 게임 ${rows.length} · 결과 신규 ${newly} · 대기 ${pending} · 예측 ${predicted} (해외 매칭 경기 ${extCount}) · ${status}`);
   await summarize(rr.id, gmTs);
+  if (!HAS_0008) log(`   ${gmTs} 복기 건너뜀: 0008 마이그레이션 미적용`);
+  else if (process.env.RETRO !== '0') {
+    try { await retroRound(rr.id, gmTs); } catch (e) { log(`   ${gmTs} 복기 실패(결과 마킹은 완료): ${e.message}`); process.exitCode = 1; }
+  }
 }
 
 /** 회차 적중 요약 (확정 경기 기준) */
@@ -107,6 +121,54 @@ async function summarize(roundId, gmTs) {
   const hit = rows.filter((x) => isHit(x.g.result_idx, x.p.pick_idx)).length;
   const exp = rows.reduce((s, x) => s + Number(x.p.pick_prob), 0);
   log(`   ${gmTs} 적중 ${hit}/${rows.length} (${(100 * hit / rows.length).toFixed(1)}%, 예상 ${(100 * exp / rows.length).toFixed(1)}%)`);
+}
+
+/**
+ * 자동 복기: 결과 확정 + 예측 있음 + 아직 복기 안 한 건마다 실패 원인 태그·한 줄 노트.
+ * 틀린 축구 경기는 ESPN 경기 기록(골 시간·PK·퇴장·슈팅)을 붙인다 (매칭 = 킥오프·스코어·이름).
+ */
+async function retroRound(roundId, gmTs) {
+  const games = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await db.from(TABLES.protoGames)
+      .select(`id, sport_code, league_code, home, away, game_ts, bet_type_id, bet_name, handi, txt_w, txt_d, txt_l, result_idx, result_score, preds:${TABLES.protoPreds}(id, model_version, pick_idx, pick_prob, flags, retro_ts)`)
+      .eq('round_id', roundId).not('result_idx', 'is', null).range(from, from + 999);
+    if (error) throw new Error(error.message);
+    games.push(...(data || []));
+    if (!data || data.length < 1000) break;
+  }
+  const mkey = (g) => `${g.home}|${g.away}|${g.game_ts}`;
+  const byMatch = new Map();
+  for (const g of games) { if (!byMatch.has(mkey(g))) byMatch.set(mkey(g), []); byMatch.get(mkey(g)).push(g); }
+  const todo = games.map((g) => ({ g, p: (g.preds || []).find((x) => x.model_version === MODEL_VERSION) }))
+    .filter(({ g, p }) => p && !p.retro_ts && isHit(g.result_idx, p.pick_idx) != null);
+  if (!todo.length) return;
+
+  // 틀린 축구 경기만 ESPN 경기 기록
+  const ctxOf = new Map();
+  if (process.env.NOESPN !== '1') {
+    const missKeys = new Set(todo.filter(({ g, p }) => g.sport_code === 'SC' && !isFirstHalf(g) && !isHit(g.result_idx, p.pick_idx)).map(({ g }) => mkey(g)));
+    const items = [...missKeys].map((k) => { const g = byMatch.get(k)[0]; return { key: k, league_code: g.league_code, game_ts: g.game_ts, home: g.home, away: g.away, raw: rawScoreOf(byMatch.get(k)) }; });
+    const matched = await matchEspnFinals(items);
+    for (const it of items) { const m = matched.get(it.key); if (m) ctxOf.set(it.key, await fetchMatchContext(m, it.raw)); }
+  }
+
+  const stamp = new Date().toISOString();
+  const updates = [];
+  const cnt = { luck: 0, close: 0, read: 0 };
+  for (const { g, p } of todo) {
+    const half = isFirstHalf(g);
+    const r = classifyPred(g, p, rawScoreOf(byMatch.get(mkey(g)), half), half ? null : ctxOf.get(mkey(g)) || null);
+    if (!r) continue;
+    if (r.tags.length || r.note) cnt[verdictOf(r.tags)]++;
+    updates.push({ id: p.id, miss_tags: r.tags, retro_note: r.note, retro_ts: stamp });
+  }
+  // 행마다 다른 값이라 update를 병렬 묶음으로
+  for (let i = 0; i < updates.length; i += 25) {
+    const res = await Promise.all(updates.slice(i, i + 25).map(({ id, ...v }) => db.from(TABLES.protoPreds).update(v).eq('id', id)));
+    const err = res.find((x) => x.error); if (err) throw new Error(err.error.message);
+  }
+  log(`   ${gmTs} 복기 ${updates.length}건 (오답 ${cnt.luck + cnt.close + cnt.read}: 변수 ${cnt.luck} · 근소 ${cnt.close} · 판단 실패 ${cnt.read} · 경기 기록 ${ctxOf.size}경기)`);
 }
 
 // ---- 대상 회차 ----

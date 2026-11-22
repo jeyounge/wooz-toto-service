@@ -10,6 +10,7 @@
 | `migrations/0001_wooz_toto_init.sql` | 스키마 12테이블 + 인덱스 + RLS(공개 read / admin write) |
 | `migrations/0002_wooz_toto_seed_calibration.sql` | 캘리브레이션 곡선 시드 (methodology CAL_VX/VY) |
 | `migrations/0007_wooz_toto_proto.sql` | 프로토 승부식: proto_rounds / proto_games / proto_preds + RLS. 배치 `scripts/proto-batch.mjs`(작업 스케줄러 WoozTotoProto 09:30·15:00·21:30) |
+| `migrations/0008_wooz_toto_proto_retro.sql` | 프로토 자동 복기: proto_preds.miss_tags/retro_note/retro_ts + proto_games.bet_name(전반전 마켓 구분). 배치가 결과 확정 후 오답 원인 태그를 붙임 |
 
 ## 적용법
 
