@@ -61,7 +61,7 @@ function SummaryTable({ title, rows, keyLabel }) {
   );
 }
 
-function BetCard({ bet }) {
+function BetCard({ bet, readOnly = false }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [editPay, setEditPay] = useState(false);
@@ -96,9 +96,9 @@ function BetCard({ bet }) {
         })}
       </ul>
       <div className="flex flex-wrap items-center gap-2 border-t border-line/60 px-3 py-1.5 text-[11px] text-sub">
-        <span>{fmtTs(bet.placed_ts)} 기록</span>
+        <span>{fmtTs(bet.placed_ts)} {readOnly ? '자동 구매' : '기록'}</span>
         {bet.note && <span className="text-ink">· {bet.note}</span>}
-        {s.status !== 'lost' && s.status !== 'pending' && (
+        {!readOnly && s.status !== 'lost' && s.status !== 'pending' && (
           editPay ? (
             <span className="flex items-center gap-1">
               <input type="number" value={pay} onChange={(e) => setPay(e.target.value)} placeholder="실제 적중금" className="w-24 rounded border border-line bg-paper px-1.5 py-0.5 font-mono text-[11px]" />
@@ -108,17 +108,80 @@ function BetCard({ bet }) {
             <button onClick={() => setEditPay(true)} className="hover:text-pine">적중금 {won(s.payout)}{bet.payout_actual != null ? ' (직접 입력)' : ''} · 수정</button>
           )
         )}
-        <button onClick={del} disabled={pending} className="ml-auto hover:text-away">삭제</button>
+        {!readOnly && <button onClick={del} disabled={pending} className="ml-auto hover:text-away">삭제</button>}
       </div>
     </div>
   );
 }
 
-export default function MyBets({ bets }) {
+/** 나 vs Claude: 같은 회차 필터로 나란히 */
+function CompareTable({ mine, bot, showRounds }) {
+  const rows = [['나', mine.total], ['Claude', bot.total]];
+  const roundKeys = [...new Set([...mine.byRound, ...bot.byRound].map((r) => r.key))].sort((a, b) => Number(b) - Number(a));
+  const mOf = new Map(mine.byRound.map((r) => [r.key, r])), bOf = new Map(bot.byRound.map((r) => [r.key, r]));
+  const tone = (x) => (x > 0 ? 'text-pine' : x < 0 ? 'text-away' : '');
+  const cell = (r) => (r ? <><span className={tone(r.profit)}>{signed(r.profit)}</span> <span className={`text-[10px] ${tone(r.roi)}`}>{spct(r.roi)}</span>{r.pending ? <span className="text-[10px] text-sub"> · 대기 {r.pending}</span> : null}</> : <span className="text-sub">-</span>);
+  return (
+    <section className="mt-6 space-y-4 rounded-xl border border-line bg-card p-4">
+      <div>
+        <div className="text-xs font-semibold text-ink">나 vs Claude</div>
+        <p className="mt-0.5 text-[11px] text-sub">Claude는 회차당 10만원(2만원 × 최대 5장)을 규칙대로 스스로 삽니다: 킥오프 24시간 안 · 해외 확률 있는 게임만 · 단폴/2폴 배당 1.8~3.5 · 기대 회수율 0.93 이상만, 미달이면 안 삼. 실제 구매가 아닌 모의 기록입니다.</p>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[560px] text-xs">
+          <thead><tr className="border-b border-line text-left font-mono text-[10px] text-sub">
+            <th className="px-2 py-1.5"></th><th className="px-2 py-1.5 text-right">장수</th><th className="px-2 py-1.5 text-right">구매</th>
+            <th className="px-2 py-1.5 text-right">손익</th><th className="px-2 py-1.5 text-right">수익률</th><th className="px-2 py-1.5 text-right">모델 기대</th>
+            <th className="px-2 py-1.5 text-right">슬립 적중</th><th className="px-2 py-1.5 text-right">게임 적중</th>
+          </tr></thead>
+          <tbody className="font-mono tabular-nums">
+            {rows.map(([who, t]) => (
+              <tr key={who} className="border-b border-line/50">
+                <td className="px-2 py-1.5 font-sans font-semibold text-ink">{who}</td>
+                <td className="px-2 py-1.5 text-right text-sub">{t.n}{t.pending ? <span className="text-[10px]"> (대기 {t.pending})</span> : null}</td>
+                <td className="px-2 py-1.5 text-right">{won(t.stake)}</td>
+                <td className={`px-2 py-1.5 text-right ${tone(t.profit)}`}>{signed(t.profit)}</td>
+                <td className={`px-2 py-1.5 text-right ${tone(t.roi)}`}>{spct(t.roi)}</td>
+                <td className="px-2 py-1.5 text-right text-sub">{spct(t.expRoi)}</td>
+                <td className="px-2 py-1.5 text-right">{pct(t.hitRate, 0)} <span className="text-sub">({t.won}/{t.settled})</span></td>
+                <td className="px-2 py-1.5 text-right">{pct(t.legRate, 0)} <span className="text-sub">({t.legHit}/{t.legN})</span></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {showRounds && roundKeys.length > 0 && (
+        <div className="overflow-x-auto">
+          <div className="mb-1 text-xs font-semibold text-ink">회차별 손익 · 수익률</div>
+          <table className="w-full min-w-[420px] text-xs">
+            <thead><tr className="border-b border-line text-left font-mono text-[10px] text-sub">
+              <th className="px-2 py-1.5">회차</th><th className="px-2 py-1.5 text-right">나</th><th className="px-2 py-1.5 text-right">Claude</th>
+            </tr></thead>
+            <tbody className="font-mono tabular-nums">
+              {roundKeys.map((k) => (
+                <tr key={k} className="border-b border-line/50">
+                  <td className="px-2 py-1.5 font-sans text-ink">{roundLabel(k)}</td>
+                  <td className="px-2 py-1.5 text-right">{cell(mOf.get(k))}</td>
+                  <td className="px-2 py-1.5 text-right">{cell(bOf.get(k))}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
+export default function MyBets({ bets, botBets = null }) {
   const [round, setRound] = useState('all');
-  const rounds = useMemo(() => [...new Set(bets.map((b) => b.round_gm_ts))].sort((a, b) => b - a), [bets]);
-  const shown = round === 'all' ? bets : bets.filter((b) => String(b.round_gm_ts) === String(round));
+  const [view, setView] = useState('mine');
+  const bots = useMemo(() => botBets || [], [botBets]);
+  const rounds = useMemo(() => [...new Set([...bets, ...bots].map((b) => b.round_gm_ts))].sort((a, b) => b - a), [bets, bots]);
+  const shown = useMemo(() => (round === 'all' ? bets : bets.filter((b) => String(b.round_gm_ts) === String(round))), [bets, round]);
+  const botShown = useMemo(() => (round === 'all' ? bots : bots.filter((b) => String(b.round_gm_ts) === String(round))), [bots, round]);
   const sum = useMemo(() => summarizeBets(shown), [shown]);
+  const botSum = useMemo(() => summarizeBets(botShown), [botShown]);
   const t = sum.total;
 
   return (
@@ -140,7 +203,23 @@ export default function MyBets({ bets }) {
       </div>
       <div className="mt-4"><ResponsibleNotice variant="inline" /></div>
 
-      {bets.length === 0 ? (
+      {botBets && (bets.length > 0 || bots.length > 0) && <CompareTable mine={sum} bot={botSum} showRounds={round === 'all'} />}
+
+      {bots.length > 0 && (
+        <div className="mt-6 flex gap-1 rounded-lg bg-paper p-1 text-xs font-semibold" role="tablist">
+          {[['mine', `내 배팅 ${shown.length}`], ['bot', `Claude 배팅 ${botShown.length}`]].map(([k, label]) => (
+            <button key={k} role="tab" aria-selected={view === k} onClick={() => setView(k)}
+              className={`flex-1 rounded-md px-3 py-1.5 ${view === k ? 'bg-card text-ink shadow-sm' : 'text-sub hover:text-ink'}`}>{label}</button>
+          ))}
+        </div>
+      )}
+
+      {view === 'bot' && bots.length > 0 ? (
+        <section className="mt-4 space-y-3">
+          {botShown.length === 0 && <div className="rounded-xl border border-line bg-card p-6 text-center text-sm text-sub">이 회차에는 기준(기대 회수율 0.93)을 넘는 슬립이 없어 사지 않았습니다.</div>}
+          {botShown.map((b) => <BetCard key={b.id} bet={b} readOnly />)}
+        </section>
+      ) : bets.length === 0 ? (
         <div className="mt-8 rounded-xl border border-line bg-card p-6 text-center text-sm text-sub">
           아직 기록이 없습니다. <Link href="/proto" className="text-pine underline">승부식 화면</Link>에서 선택지를 눌러 담아 보세요.
         </div>

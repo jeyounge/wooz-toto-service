@@ -31,4 +31,6 @@ export const TABLES = {
   protoPreds: t('proto_preds'),
   protoBets: t('proto_bets'),
   protoBetLegs: t('proto_bet_legs'),
+  protoBotBets: t('proto_bot_bets'),
+  protoBotBetLegs: t('proto_bot_bet_legs'),
 };

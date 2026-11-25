@@ -12,6 +12,8 @@ export const ESPN_LEAGUES = {
   '52': 'soccer/eng.1', '48': 'soccer/eng.2', '67': 'soccer/esp.1', '53': 'soccer/ita.1', '56': 'soccer/ger.1',
   '54': 'soccer/fra.1', '2': 'soccer/ned.1', '130': 'soccer/usa.1', '113': 'soccer/aus.1', 'SC007': 'soccer/jpn.1',
   'SC001': 'soccer/kor.1', 'd0': 'soccer/afc.champions', 'SC100': 'soccer/fifa.friendly', 'SC105': 'soccer/concacaf.nations.league',
+  // UEFA 클럽대항전 + ACL2 (2026-11-25 ESPN 머니라인 제공 확인. ACL2는 ESPN 슬러그가 afc.cup)
+  'SC021': 'soccer/uefa.champions', 'SC047': 'soccer/uefa.europa', 'SC107': 'soccer/uefa.europa.conf', 'd1': 'soccer/afc.cup',
   'BK002': 'basketball/nba',
 };
 const MAX_DIST = 0.35;

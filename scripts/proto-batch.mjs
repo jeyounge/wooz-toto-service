@@ -1,7 +1,7 @@
 // 프로토 승부식 배치 — 수집 → 예측 → 결과 마킹 → 자동 복기 (LLM 없음, service_role).
 // 사용: node scripts/proto-batch.mjs [gmTs...]
 //   인자 없으면: 발매 중 회차 + 결과 대기 경기가 남은 최근 회차를 자동 처리.
-//   PREDICT=0 이면 예측 갱신 생략, NOESPN=1 이면 해외 배당·경기 기록 생략, RETRO=0 이면 복기 생략.
+//   PREDICT=0 이면 예측 갱신 생략, NOESPN=1 이면 해외 배당·경기 기록 생략, RETRO=0 이면 복기 생략, BOT=0 이면 Claude 배팅 생략.
 // 원칙: 예측은 킥오프 전까지만 갱신하고 킥오프 후에는 동결 → 적중률이 사후 보정 없이 기록된다.
 import { readFileSync, appendFileSync, mkdirSync } from 'fs';
 import { createClient } from '@supabase/supabase-js';
@@ -10,6 +10,7 @@ import { predictGame, devig, isHit, MODEL_VERSION } from '../src/lib/proto/predi
 import { matchExternal, matchEspnFinals, fetchMatchContext } from '../src/lib/proto/espn.js';
 import { classifyPred, rawScoreOf, verdictOf } from '../src/lib/proto/retro.js';
 import { isFirstHalf } from '../src/lib/proto/accuracy.js';
+import { planBotBets, matchKeyOf, BOT_ID } from '../src/lib/proto/bot.js';
 import { TABLES } from '../src/lib/tables.js';
 
 const env = {};
@@ -34,6 +35,9 @@ const HAS_0008 = await (async () => {
   const b = await db.from(TABLES.protoPreds).select('retro_ts').limit(1);
   return !a.error && !b.error;
 })();
+
+// 0010(Claude 배팅) 미적용 DB면 Claude 배팅만 건너뛴다.
+const HAS_0010 = !(await db.from(TABLES.protoBotBets).select('id').limit(1)).error;
 
 async function upsertChunks(table, rows, onConflict, select) {
   const out = [];
@@ -75,6 +79,7 @@ async function processRound(gmTs, saleEndTs) {
 
   // ---- 예측 (킥오프 전 게임만) ----
   let predicted = 0, extCount = 0;
+  const preds = [];
   if (process.env.PREDICT !== '0') {
     const upcoming = rows.filter((r) => r.game_ts && new Date(r.game_ts).getTime() > now && r.result_idx == null);
     const key = (r) => `${r.home}|${r.away}|${r.game_ts}`;
@@ -87,7 +92,6 @@ async function processRound(gmTs, saleEndTs) {
       ext = await matchExternal(base);
       extCount = ext.size;
     }
-    const preds = [];
     for (const r of upcoming) {
       const p = predictGame(r, isFirstHalf(r) ? null : ext.get(key(r)) || null);
       if (!p || !idOf.get(r.match_seq)) continue;
@@ -104,11 +108,42 @@ async function processRound(gmTs, saleEndTs) {
   await db.from(TABLES.protoRounds).update({ status }).eq('id', rr.id);
 
   log(`${gmTs}: 게임 ${rows.length} · 결과 신규 ${newly} · 대기 ${pending} · 예측 ${predicted} (해외 매칭 경기 ${extCount}) · ${status}`);
+  if (status === 'open' && preds.length && process.env.BOT !== '0') {
+    if (!HAS_0010) log(`   ${gmTs} Claude 배팅 건너뜀: 0010 마이그레이션 미적용`);
+    else {
+      try { await botRound(rr.id, gmTs, gameRows, idOf, preds); } catch (e) { log(`   ${gmTs} Claude 배팅 실패: ${e.message}`); process.exitCode = 1; }
+    }
+  }
   await summarize(rr.id, gmTs);
   if (!HAS_0008) log(`   ${gmTs} 복기 건너뜀: 0008 마이그레이션 미적용`);
   else if (process.env.RETRO !== '0') {
     try { await retroRound(rr.id, gmTs); } catch (e) { log(`   ${gmTs} 복기 실패(결과 마킹은 완료): ${e.message}`); process.exitCode = 1; }
   }
+}
+
+/**
+ * Claude 배팅 (bot.js): 이번 배치에서 갓 계산한 예측으로 회차 예산 안에서 산다.
+ * 이미 산 금액·경기는 DB에서 다시 읽어 배치가 여러 번 돌아도 예산·중복을 넘지 않는다.
+ */
+async function botRound(roundId, gmTs, gameRows, idOf, preds) {
+  const { data: prevBets, error } = await db.from(TABLES.protoBotBets)
+    .select(`stake, legs:${TABLES.protoBotBetLegs}(game:${TABLES.protoGames}(home, away, game_ts))`)
+    .eq('round_id', roundId).eq('bot', BOT_ID);
+  if (error) throw new Error(error.message);
+  const spent = (prevBets || []).reduce((a, b) => a + b.stake, 0);
+  const usedKeys = (prevBets || []).flatMap((b) => (b.legs || []).map((l) => l.game && matchKeyOf(l.game)).filter(Boolean));
+  const predOf = new Map(preds.map((p) => [p.game_id, p]));
+  const games = gameRows.map((r) => ({ ...r, id: idOf.get(r.match_seq), pred: predOf.get(idOf.get(r.match_seq)) || null })).filter((g) => g.id && g.pred);
+  const plan = planBotBets(games, { now, spent, usedKeys });
+  for (const s of plan) {
+    const { data: bet, error: e1 } = await db.from(TABLES.protoBotBets)
+      .insert({ bot: BOT_ID, round_id: roundId, stake: s.stake, total_odds: s.total_odds, model_prob: s.model_prob, reason: s.reason })
+      .select('id').single();
+    if (e1) throw new Error(e1.message);
+    const { error: e2 } = await db.from(TABLES.protoBotBetLegs).insert(s.legs.map((l) => ({ bet_id: bet.id, ...l })));
+    if (e2) { await db.from(TABLES.protoBotBets).delete().eq('id', bet.id); throw new Error(e2.message); }
+  }
+  log(`   ${gmTs} Claude 배팅 ${plan.length}장 신규 (회차 누적 ${(spent + plan.reduce((a, s) => a + s.stake, 0)).toLocaleString('ko-KR')}원)`);
 }
 
 /** 회차 적중 요약 (확정 경기 기준) */

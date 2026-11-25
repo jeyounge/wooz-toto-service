@@ -1,12 +1,12 @@
 import Link from 'next/link';
-import { getMyProtoBets } from '@/lib/protoQueries';
+import { getMyProtoBets, getBotProtoBets } from '@/lib/protoQueries';
 import MyBets from '@/components/proto/MyBets';
 import ProtoPending from '@/components/proto/ProtoPending';
 
 export const dynamic = 'force-dynamic'; // 로그인 사용자별 화면
 export const metadata = {
   title: '내 승부식 배팅 기록 | 토토 Z',
-  description: '프로토 승부식 회차별 배팅 기록 · 결과 · 손익 · 수익률 (개인 분석·기록용).',
+  description: '프로토 승부식 회차별 배팅 기록 · 결과 · 손익 · 수익률, Claude 모의 배팅과 비교 (개인 분석·기록용).',
 };
 
 export default async function MyProtoBetsPage() {
@@ -25,5 +25,6 @@ export default async function MyProtoBetsPage() {
       </div>
     );
   }
-  return <MyBets bets={res.bets} />;
+  const botBets = await getBotProtoBets(); // 0010 미적용이면 null → 비교 영역 숨김
+  return <MyBets bets={res.bets} botBets={botBets} />;
 }
