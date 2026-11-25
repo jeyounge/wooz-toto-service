@@ -72,3 +72,20 @@ test('diagnose: 국내 디빅만 쓴 예측은 모든 선택지 기대값이 환
   assert.equal(d.strategies.find((x) => x.name === '예측픽 전부').n, 1);
   assert.equal(d.strategies.find((x) => x.name.startsWith('가치픽 · 해외확률 · EV≥1.00')).n, 0);
 });
+
+test('contrarianIdx: 국내과열 픽이면 남은 선택지 중 확률 최고, 아니면 null', async () => {
+  const { contrarianIdx } = await import('../src/lib/proto/analysis.js');
+  const g = { odds_w: 1.4, odds_d: 4.2, odds_l: 6.5, pred: { pick_idx: 0, p_w: 0.62, p_d: 0.24, p_l: 0.14, flags: ['국내과열'] } };
+  assert.equal(contrarianIdx(g), 1);
+  assert.equal(contrarianIdx({ ...g, pred: { ...g.pred, flags: [] } }), null);
+  assert.equal(contrarianIdx({ ...g, odds_d: 0, pred: { ...g.pred, p_d: 0 } }), 2); // 무 미발매
+});
+
+test('diagnose: 전략 수익률 표준오차 — 전부 적중이면 분산 0', () => {
+  const g = (r) => ({ sport: '축구', bet_type_id: '2', odds_w: 2, odds_d: 0, odds_l: 2, result_idx: r,
+    pred: { p_w: 0.5, p_d: 0, p_l: 0.5, pick_idx: 0, pick_prob: 0.5, prob_source: 'espn', flags: [] } });
+  const s = diagnose([g(0), g(0)]).strategies.find((x) => x.name === '예측픽 전부');
+  assert.equal(s.roi, 1); assert.equal(s.se, 0);
+  const t = diagnose([g(0), g(2)]).strategies.find((x) => x.name === '예측픽 전부');
+  assert.equal(t.roi, 0); assert.ok(Math.abs(t.se - Math.sqrt(1 / 2)) < 1e-9);
+});

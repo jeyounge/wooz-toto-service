@@ -41,7 +41,7 @@ for (const c of d.calib) console.log(`  ${c.bucket.padEnd(9)} n=${String(c.n).pa
 console.log('\n[2] 국내 환급률 (1/Σ(1/배당)) — 1.00 미만만큼이 베트맨 몫');
 for (const p of d.payout) console.log(`  ${p.key.padEnd(22)} n=${String(p.n).padStart(4)}  ${pct(p.rate)}`);
 console.log('\n[3] 전략별 단폴 1단위 회수 (수익률 = 환급/건수 − 1)');
-for (const s of d.strategies) console.log(`  ${s.name.padEnd(26)} n=${String(s.n).padStart(4)}  적중 ${pct(s.rate)}  수익률 ${pct(s.roi)}  모델기대 ${pct(s.expRoi)}`);
+for (const s of d.strategies) console.log(`  ${s.name.padEnd(26)} n=${String(s.n).padStart(4)}  적중 ${pct(s.rate)}  수익률 ${pct(s.roi)} ±${s.se == null ? "-" : (196 * s.se).toFixed(1) + "%p"}  모델기대 ${pct(s.expRoi)}`);
 console.log('\n[4] 종목 · 유형군 · 확률원천');
 for (const s of d.segments) console.log(`  ${s.key.padEnd(30)} n=${String(s.n).padStart(4)}  적중 ${pct(s.rate)}  예상 ${pct(s.exp)}`);
 

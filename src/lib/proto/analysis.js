@@ -13,6 +13,18 @@ const odds3 = (g) => [g.odds_w, g.odds_d, g.odds_l].map((o) => (o == null ? 0 : 
 const probs3 = (p) => [p.p_w, p.p_d, p.p_l].map(Number);
 export const payoutRate = (odds) => { const inv = odds.filter((o) => o > 1).map((o) => 1 / o); return inv.length >= 2 ? 1 / inv.reduce((a, b) => a + b, 0) : null; };
 
+/**
+ * 국내과열 반대(차선): 예측 픽이 국내과열이면, 그 픽을 뺀 발매 선택지 중 확률 최고. 아니면 null.
+ * 근거: 베트맨은 구매 쏠림에 맞춰 배당을 조정 → 쏠린 쪽은 깎이고 반대쪽이 상대적으로 후해질 수 있다.
+ * 138~139회차 103건 +9.2% (표본 작음, 전략 장부로 계속 검증).
+ */
+export function contrarianIdx(g) {
+  const p = g.pred;
+  if (!p || !(p.flags || []).includes('국내과열')) return null;
+  const pr = probs3(p); const o = odds3(g);
+  return [0, 1, 2].filter((i) => i !== p.pick_idx && o[i] > 1).sort((a, b) => pr[b] - pr[a])[0] ?? null;
+}
+
 /** 전략: 게임 → 살 선택지 index 또는 null */
 export const STRATEGIES = {
   '예측픽 전부': (g, p) => p.pick_idx,
@@ -20,12 +32,8 @@ export const STRATEGIES = {
   '예측픽 · 해외확률만': (g, p) => (p.prob_source !== 'domestic' ? p.pick_idx : null),
   '가치픽 · 해외확률 · EV≥1.00': (g, p) => (p.prob_source !== 'domestic' && p.value_idx != null && Number(p.value_ev) >= 1 ? p.value_idx : null),
   '가치픽 · 해외확률 · EV≥1.05': (g, p) => (p.prob_source !== 'domestic' && p.value_idx != null && Number(p.value_ev) >= 1.05 ? p.value_idx : null),
-  '국내과열 픽 반대(차선)': (g, p) => {
-    if (!(p.flags || []).includes('국내과열')) return null;
-    const pr = probs3(p); const o = odds3(g);
-    const alt = [0, 1, 2].filter((i) => i !== p.pick_idx && o[i] > 1).sort((a, b) => pr[b] - pr[a])[0];
-    return alt ?? null;
-  },
+  '국내과열 픽 반대(차선)': (g) => contrarianIdx(g),
+  '국내과열 픽 그대로': (g, p) => ((p.flags || []).includes('국내과열') ? p.pick_idx : null),
   '홀짝·언오버 제외 예측픽': (g, p) => (['ou', 'oe'].includes(betGroup(g.bet_type_id)) ? null : p.pick_idx),
 };
 
@@ -52,14 +60,16 @@ export function diagnose(games) {
   const payout = Object.entries(pr).map(([k, v]) => ({ key: k, n: v.n, rate: v.sum / v.n })).sort((a, b) => b.n - a.n);
   // 3) 전략별 단폴 회수율
   const strategies = Object.entries(STRATEGIES).map(([name, fn]) => {
-    let n = 0, hit = 0, ret = 0, expRet = 0;
+    let n = 0, hit = 0, ret = 0, ret2 = 0, expRet = 0;
     for (const g of settled) {
       const i = fn(g, g.pred); if (i == null) continue;
       const o = odds3(g)[i]; if (!(o > 1)) continue;
       n++; expRet += o * probs3(g.pred)[i];
-      if (g.result_idx === i) { hit++; ret += o; }
+      if (g.result_idx === i) { hit++; ret += o; ret2 += o * o; }
     }
-    return { name, n, hit, rate: n ? hit / n : null, roi: n ? ret / n - 1 : null, expRoi: n ? expRet / n - 1 : null };
+    // 수익률 표준오차: 건당 환급(0 또는 배당)의 표준편차 / √n
+    const se = n > 1 ? Math.sqrt(Math.max(ret2 / n - (ret / n) ** 2, 0) / n) : null;
+    return { name, n, hit, rate: n ? hit / n : null, roi: n ? ret / n - 1 : null, se, expRoi: n ? expRet / n - 1 : null };
   });
   // 4) 종목 × 유형군 × 확률원천
   const cells = {};
