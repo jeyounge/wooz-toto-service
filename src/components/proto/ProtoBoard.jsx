@@ -6,6 +6,7 @@ import { BET_GROUPS, roundSummary, typeLabel } from '@/lib/proto/accuracy';
 import { TAGS, VERDICTS, verdictOf, roundRetro } from '@/lib/proto/retro';
 import BetSlip from '@/components/proto/BetSlip';
 import { recommendCombos } from '@/lib/proto/combos';
+import { contrarianIdx } from '@/lib/proto/analysis';
 
 const SPORT_ORDER = ['SC', 'BK', 'VL', 'BS'];
 const SPORT_LABEL = { SC: '축구', BK: '농구', VL: '배구', BS: '야구' };
@@ -15,6 +16,7 @@ const FILTERS = [
   { id: 'overheat', label: '국내과열', test: (g) => g.pred?.flags?.includes('국내과열') },
   { id: 'value', label: '가치(EV≥1)', test: (g) => g.pred?.flags?.includes('가치') },
   // 국내 배당 디빅만으로 만든 확률은 모든 선택지 EV가 같아(=환급률) 가치 판단이 안 된다 → 해외 확률이 있는 것만 후보
+  { id: 'contra', label: '과열 반대(실험)', test: (g) => contrarianIdx(g) != null },
   { id: 'cand', label: '배팅 후보', test: (g) => g.pred && g.pred.prob_source !== 'domestic' && Number(g.pred.value_ev) >= 1.02 },
   { id: 'ext', label: '해외배당', test: (g) => g.pred && g.pred.prob_source !== 'domestic' },
   { id: 'settled', label: '결과확정', test: (g) => g.result_idx != null },
@@ -61,6 +63,7 @@ function OptionCell({ g, i, onPick, inSlip }) {
   const crowd = tot ? bets[i] / tot : null;
   const isPick = g.pred?.pick_idx === i;
   const isValue = g.pred?.value_idx === i && Number(g.pred?.value_ev) >= 0.95;
+  const isContra = contrarianIdx(g) === i;
   const decided = g.result_idx != null && g.result_idx !== 4;
   const isResult = decided && g.result_idx === i;
   const ring = isPick ? (decided ? (isResult ? 'ring-2 ring-pine bg-pine/10' : 'ring-2 ring-away/60 bg-away/5') : 'ring-2 ring-pine bg-pine/5') : isResult ? 'bg-paper' : '';
@@ -69,7 +72,7 @@ function OptionCell({ g, i, onPick, inSlip }) {
       <button type="button" onClick={() => onPick?.(g, i, odds)} title="눌러서 배팅 기록에 담기/빼기" aria-pressed={!!inSlip}
         className={`block w-full rounded-lg px-2 py-1 text-left transition-colors hover:bg-pine/5 ${ring} ${inSlip ? 'outline outline-2 outline-offset-1 outline-draw' : ''}`}>
         <div className="flex items-baseline justify-between gap-1">
-          <span className={`text-xs font-bold ${COL[i]}`}>{txt}{isValue && <span className="ml-0.5 text-draw" title={`가치 픽 · 기대값 ${g.pred.value_ev}`}>★</span>}{isResult && <span className="ml-0.5 text-ink">✓</span>}</span>
+          <span className={`text-xs font-bold ${COL[i]}`}>{txt}{isValue && <span className="ml-0.5 text-draw" title={`가치 픽 · 기대값 ${g.pred.value_ev}`}>★</span>}{isContra && <span className="ml-0.5 text-away" title="국내과열 반대(차선) — 실험 전략, 전략 장부에서 검증 중">◆</span>}{isResult && <span className="ml-0.5 text-ink">✓</span>}</span>
           <span className="font-mono text-xs tabular-nums text-ink">{odds.toFixed(2)}</span>
         </div>
         <div className="mt-0.5 flex justify-between gap-1 font-mono text-[10px] tabular-nums text-sub">
@@ -262,6 +265,51 @@ function ComboPanel({ games, onLoad }) {
   );
 }
 
+/** 전략 장부: 확정 경기 전체에서 전략별로 단폴 1단위씩 샀다고 가정한 누적 성적 (돈 없이 검증) */
+function StrategyPanel({ list }) {
+  if (!list?.length) return null;
+  const verdict = (s) => {
+    if (s.n < 30 || s.roi == null || s.se == null) return { t: '표본 부족', c: 'text-sub' };
+    const lo = s.roi - 1.96 * s.se;
+    if (lo > 0) return { t: '수익 (유의)', c: 'text-pine font-semibold' };
+    if (s.roi > 0) return { t: '수익 쪽 (아직 운일 수 있음)', c: 'text-pine' };
+    if (s.roi + 1.96 * s.se < 0) return { t: '손실 (유의)', c: 'text-away' };
+    return { t: '판단 보류', c: 'text-sub' };
+  };
+  return (
+    <section className="mt-6 rounded-xl border border-line bg-card p-5">
+      <h2 className="font-display text-base font-bold text-ink">전략 장부</h2>
+      <p className="mt-1 text-xs text-sub">결과가 확정된 모든 게임에서, 전략마다 단폴 1단위씩 샀다고 가정한 누적 성적입니다. 실제로 돈을 걸기 전에 전략이 통하는지 확인하는 용도입니다. 95% 범위가 0을 넘어야 운이 아니라고 볼 수 있습니다.</p>
+      <div className="mt-3 overflow-x-auto">
+        <table className="w-full min-w-[620px] text-xs">
+          <thead><tr className="border-b border-line text-left font-mono text-[10px] text-sub">
+            <th className="px-2 py-1.5">전략</th><th className="px-2 py-1.5 text-right">건수</th><th className="px-2 py-1.5 text-right">적중률</th>
+            <th className="px-2 py-1.5 text-right">수익률</th><th className="px-2 py-1.5 text-right">95% 범위</th><th className="px-2 py-1.5 text-right">모델 기대</th><th className="px-2 py-1.5">판정</th>
+          </tr></thead>
+          <tbody className="font-mono tabular-nums">
+            {list.map((s) => {
+              const v = verdict(s);
+              const sp = (x) => `${x > 0 ? '+' : ''}${(x * 100).toFixed(1)}%`;
+              return (
+                <tr key={s.name} className="border-b border-line/50">
+                  <td className="px-2 py-1.5 font-sans text-ink">{s.name}</td>
+                  <td className="px-2 py-1.5 text-right text-sub">{s.n}</td>
+                  <td className="px-2 py-1.5 text-right">{pct(s.rate, 1)}</td>
+                  <td className={`px-2 py-1.5 text-right ${s.roi > 0 ? 'text-pine' : s.roi < 0 ? 'text-away' : ''}`}>{s.roi == null ? '-' : sp(s.roi)}</td>
+                  <td className="px-2 py-1.5 text-right text-sub">{s.se == null || s.roi == null ? '-' : `${sp(s.roi - 1.96 * s.se)} ~ ${sp(s.roi + 1.96 * s.se)}`}</td>
+                  <td className="px-2 py-1.5 text-right text-sub">{s.expRoi == null ? '-' : sp(s.expRoi)}</td>
+                  <td className={`px-2 py-1.5 font-sans ${v.c}`}>{v.t}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className="mt-2 text-[11px] text-sub">◆ = 국내과열 반대(차선) 선택지. 여러 전략을 동시에 보면 하나쯤은 우연히 좋아 보이므로, 실험 전략은 표본 300건 이상에서 판단하세요. 수익을 보장하지 않습니다.</p>
+    </section>
+  );
+}
+
 function AccuracyPanel({ acc }) {
   const [axis, setAxis] = useState('sport');
   const AXES = [{ id: 'sport', label: '종목' }, { id: 'league', label: '리그' }, { id: 'group', label: '유형군' }, { id: 'type', label: '세부유형' }, { id: 'flag', label: '플래그' }, { id: 'source', label: '확률원천' }];
@@ -429,7 +477,7 @@ export default function ProtoBoard({ round, games, rounds, accuracy }) {
         <span>예측 <b className="text-ink">{stat.pred}</b></span>
         <span>결과확정 <b className="text-ink">{stat.settled}</b>{stat.settled === 0 && roundSettled > 0 && <span className="ml-1 font-sans text-[11px]">(회차 전체 {roundSettled})</span>}</span>
         <span>적중 <b className="text-ink">{stat.hit}</b> ({pct(stat.rate, 1)} · 예상 {pct(stat.exp, 1)})</span>
-        <span className="text-[11px]">테두리 = 예측 픽 · ★ = 가치 픽(기대값 0.95+) · ✓ = 결과 · 선택지를 누르면 배팅 기록에 담김</span>
+        <span className="text-[11px]">테두리 = 예측 픽 · ★ = 가치 픽(기대값 0.95+) · ◆ = 과열 반대(실험) · ✓ = 결과 · 선택지를 누르면 배팅 기록에 담김</span>
       </div>
 
       <div className="mt-4 space-y-3">
@@ -482,6 +530,8 @@ export default function ProtoBoard({ round, games, rounds, accuracy }) {
       </div>
 
       <AccuracyPanel acc={accuracy} />
+
+      <StrategyPanel list={accuracy?.strategies} />
 
       <BetSlip round={round} legs={slip} onChange={setSlip} />
 

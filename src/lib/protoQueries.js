@@ -5,6 +5,7 @@ import { createClient } from './supabase/server.js';
 import { TABLES } from './tables.js';
 import { MODEL_VERSION } from './proto/predict.js';
 import { aggregateAccuracy } from './proto/accuracy.js';
+import { diagnose } from './proto/analysis.js';
 
 const GAME_COLS = `id, match_seq, sport_code, sport, league_code, league, league_short, home, away, game_ts, end_ts,
   bet_type_id, bet_type, bet_name, handi, txt_w, txt_d, txt_l, odds_w, odds_d, odds_l, bets_w, bets_d, bets_l,
@@ -53,7 +54,9 @@ export async function getProtoAccuracy() {
     games.push(...(data || []));
     if (!data || data.length < 1000) break;
   }
-  return aggregateAccuracy(games.map(withPred));
+  const gs = games.map(withPred);
+  // 전략 장부: 결과 확정 전 게임을 단폴 1단위로 샀다고 가정한 누적 수익률 (돈을 걸지 않고 전략을 검증)
+  return { ...aggregateAccuracy(gs), strategies: diagnose(gs).strategies };
 }
 
 /**
