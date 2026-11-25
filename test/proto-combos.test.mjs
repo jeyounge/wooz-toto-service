@@ -59,8 +59,8 @@ test('comboCandidates: 해외 확률 · 킥오프 전 · EV 기준 · 경기당 
   assert.deepEqual(c.map((x) => x.game.id), [1, 2]);
 });
 
-test('recommendCombos: 2폴 기대 회수율 = 배당 곱(올림) × 확률 곱', () => {
-  const gs = [game(1, 'A', 1.08, 0.55), game(2, 'B', 1.04, 0.6), game(3, 'C', 1.025, 0.7)];
+test('recommendCombos: 2폴 기대 회수율 = 배당 곱(첫째 자리로 올림) × 확률 곱', () => {
+  const gs = [game(1, 'A', 1.08, 0.55), game(2, 'B', 1.10, 0.6), game(3, 'C', 1.025, 0.7)];
   const r = recommendCombos(gs, { now: Date.parse('2026-01-01') });
   assert.equal(r.pairs.length, 3); assert.equal(r.triples.length, 1);
   const top = r.pairs[0];
