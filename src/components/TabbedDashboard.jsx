@@ -4,10 +4,14 @@ import RoundSelector from './RoundSelector';
 import { saveFinalPick } from '@/app/actions/finalPick';
 import { rankProbs, combosFromMarks } from '@/lib/combinatorics';
 import { RULES, LESSONS, AWAY_COVER, BASE_RATES, CAL_VX, CAL_VY, CAL_VY_DRAW } from '@/lib/methodology';
+import { fmtKickoff } from '@/lib/kickoff';
 
 const OL = ['승', '무', '패'];
 const BG = ['bg-home', 'bg-draw', 'bg-away'];
 const TX = ['text-home', 'text-draw', 'text-away'];
+const STATUS_KO = { scheduled: '발매 전', open: '발매 중', closed: '발매 마감', settled: '결과 확정' };
+/** 괴리(%p) 표기: 투표율이 소수라 부동소수 꼬리가 붙지 않게 소수 1자리로 반올림 */
+const fmtGap = (g) => { const r = Math.round(g * 10) / 10; return `${r > 0 ? '+' : ''}${Number.isInteger(r) ? r : r.toFixed(1)}`; };
 
 /** 3색 누적 바 */
 function Bar3({ p }) {
@@ -141,7 +145,15 @@ export default function TabbedDashboard({ view, roundsList, currentId, canSaveFi
   const { round, rows, summary, pb, markIdxList, satellite, storedTickets = [] } = view;
   const voted = useMemo(() => rows.filter((r) => r.hasVote), [rows]);
   const [tab, setTab] = useState('p1');
-  const [track, setTrack] = useState(() => voted.map(() => null));
+  // 실시간 추적 초기값 = DB에 들어온 공식 결과. 결과 없는 경기만 직접 눌러 가정해 본다.
+  const initialTrack = useMemo(() => voted.map((r) => r.resultIdx ?? null), [voted]);
+  const [track, setTrack] = useState(initialTrack);
+  const kickoffRange = useMemo(() => {
+    const ts = rows.map((r) => r.kickoff).filter(Boolean).sort();
+    if (!ts.length) return null;
+    const a = fmtKickoff(ts[0]), b = fmtKickoff(ts[ts.length - 1]);
+    return a === b ? a : `${a} ~ ${b}`;
+  }, [rows]);
 
   const TABS = [
     ['p1', '🎯 대진 · 마킹'], ['p2', '🔬 경기별 분석'],
@@ -186,6 +198,7 @@ export default function TabbedDashboard({ view, roundsList, currentId, canSaveFi
         <div>
           <p className="font-mono text-[11px] uppercase tracking-widest text-pine">축구토토 승무패 · {round.season}</p>
           <h1 className="mt-1 font-display text-3xl font-extrabold text-ink">{round.round_no}회차 인사이트</h1>
+          <p className="mt-1 font-mono text-xs text-sub">{STATUS_KO[round.status] || round.status} · 경기 {kickoffRange || '일정 미수집'}</p>
         </div>
         <RoundSelector rounds={roundsList} currentId={currentId} />
       </div>
@@ -211,7 +224,7 @@ export default function TabbedDashboard({ view, roundsList, currentId, canSaveFi
               ['4등내', `${(summary.within3 * 100).toFixed(1)}%`, '≤3틀림'],
               ['앵커(★)', `${summary.anchors}개`, '초강세 단식'],
               ['패 커버', `${summary.awayCover}경기`, `최소 ${AWAY_COVER.MIN_AWAY_COVER}`],
-              ['경기', `${summary.voted}`, `${round.status}`],
+              ['경기', `${summary.voted}`, STATUS_KO[round.status] || round.status],
             ].map(([k, v, s]) => (
               <div key={k} className="rounded-xl border border-line bg-card p-4">
                 <div className="text-xs text-sub">{k}</div>
@@ -225,9 +238,9 @@ export default function TabbedDashboard({ view, roundsList, currentId, canSaveFi
           <div className="mt-6 rounded-xl border border-line bg-card p-4">
             <div className="flex items-center justify-between">
               <div className="text-sm font-semibold text-ink">🔴 실시간 적중 추적 (메인 {summary.combos}조합)</div>
-              <button onClick={() => setTrack(voted.map(() => null))} className="rounded border border-line px-2 py-1 font-mono text-[11px] text-sub hover:bg-paper">초기화</button>
+              <button onClick={() => setTrack(initialTrack)} className="rounded border border-line px-2 py-1 font-mono text-[11px] text-sub hover:bg-paper">초기화</button>
             </div>
-            <p className="mt-1 text-[11px] text-sub">각 경기 결과를 누르면 마킹 적중/틀림과 잠정 등수가 계산됩니다.</p>
+            <p className="mt-1 text-[11px] text-sub">확정된 공식 결과는 자동으로 채워집니다. 남은 경기 결과를 눌러 보면 마킹 적중/틀림과 잠정 등수가 계산됩니다(초기화 = 공식 결과로 되돌리기).</p>
             <div className="mt-3 inline-block rounded-lg border border-line bg-paper px-4 py-2">
               <span className="font-display text-lg font-bold text-ink">{trackStat.decided ? trackStat.rank : '대기중'}</span>
               <span className="ml-3 font-mono text-xs text-sub">판정 {trackStat.decided}/{voted.length} · 틀림 {trackStat.wrong}</span>
@@ -248,7 +261,7 @@ export default function TabbedDashboard({ view, roundsList, currentId, canSaveFi
                 {voted.map((r, i) => (
                   <tr key={r.no} className="border-b border-line/60">
                     <td className="px-3 py-2 font-mono">{r.no}{r.tag && <b className="ml-1 text-pine">{r.tag}</b>}</td>
-                    <td className="px-3 py-2"><b className="text-ink">{r.home}</b> <span className="text-sub">v</span> {r.away}</td>
+                    <td className="px-3 py-2"><b className="text-ink">{r.home}</b> <span className="text-sub">v</span> {r.away}{r.kickoff && <div className="font-mono text-[10px] text-sub">{fmtKickoff(r.kickoff)}</div>}</td>
                     <td className="px-3 py-2"><span className="rounded bg-paper px-1.5 py-0.5 font-mono text-[10px] text-sub">{r.league}</span></td>
                     <td className="px-3 py-2"><div className="flex items-center gap-1"><Bar3 p={r.crowd} /><span className="font-mono text-[10px] text-sub">{r.crowd.join('/')}</span></div></td>
                     <td className="px-3 py-2"><div className="flex items-center gap-1"><Bar3 p={r.model} /><span className="font-mono text-[10px] text-sub">{r.model.join('/')}</span></div></td>
@@ -281,7 +294,7 @@ export default function TabbedDashboard({ view, roundsList, currentId, canSaveFi
                       <div className="absolute inset-y-0 left-0 rounded bg-away/70" style={{ width: `${r.crowd[0]}%` }} />
                       <div className="absolute inset-y-0 left-0 rounded bg-home" style={{ width: `${r.model[0]}%`, opacity: 0.6 }} />
                     </div>
-                    <span className={`w-12 shrink-0 text-right font-mono ${Math.abs(gap) >= 12 ? 'font-bold text-away' : 'text-sub'}`}>{gap > 0 ? '+' : ''}{gap}</span>
+                    <span className={`w-12 shrink-0 text-right font-mono ${Math.abs(gap) >= 12 ? 'font-bold text-away' : 'text-sub'}`}>{fmtGap(gap)}</span>
                   </div>
                 );
               })}

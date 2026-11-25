@@ -304,6 +304,8 @@ export default function ProtoBoard({ round, games, rounds, accuracy }) {
     const exp = settled.reduce((s, g) => s + Number(g.pred.pick_prob), 0);
     return { n: shown.length, pred: pred.length, settled: settled.length, hit, rate: settled.length ? hit / settled.length : null, exp: settled.length ? exp / settled.length : null };
   }, [shown]);
+  // 아래 통계 줄은 현재 종목·리그·유형·보기 기준이라, 회차 전체 표와 숫자가 다를 수 있다 → 범위를 같이 보여준다.
+  const roundSettled = useMemo(() => roundSummary(games).all?.settled || 0, [games]);
 
   const pickSport = (c) => { setSport(c); setLeague([]); setType([]); };
   const pickLeague = (c) => setLeague((l) => toggle(l, c));
@@ -361,9 +363,10 @@ export default function ProtoBoard({ round, games, rounds, accuracy }) {
       </div>
 
       <div className="mt-4 flex flex-wrap gap-x-6 gap-y-1 rounded-lg bg-card px-4 py-2.5 font-mono text-xs text-sub">
+        <span className="font-sans font-semibold text-ink">{scopeLabel}{(type.length > 0 || filter !== 'all') ? ' · 필터 적용' : ''} 기준</span>
         <span>게임 <b className="text-ink">{stat.n}</b></span>
         <span>예측 <b className="text-ink">{stat.pred}</b></span>
-        <span>결과확정 <b className="text-ink">{stat.settled}</b></span>
+        <span>결과확정 <b className="text-ink">{stat.settled}</b>{stat.settled === 0 && roundSettled > 0 && <span className="ml-1 font-sans text-[11px]">(회차 전체 {roundSettled})</span>}</span>
         <span>적중 <b className="text-ink">{stat.hit}</b> ({pct(stat.rate, 1)} · 예상 {pct(stat.exp, 1)})</span>
         <span className="text-[11px]">테두리 = 예측 픽 · ★ = 가치 픽(기대값 0.95+) · ✓ = 결과</span>
       </div>

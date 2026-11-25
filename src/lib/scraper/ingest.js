@@ -6,6 +6,7 @@
 import { createAdminClient } from '../supabase/admin.js';
 import { TABLES } from '../tables.js';
 import { leagueOf, normalizeTeam } from '../leagues.js';
+import { parseRoundKickoffs } from '../kickoff.js';
 
 const isZeroVote = (r) => r.vote_h === 0 && r.vote_d === 0 && r.vote_l === 0;
 
@@ -38,8 +39,10 @@ export async function ingestRound(totoRound, rows) {
 
   let mCount = 0, vCount = 0, resCount = 0;
   const teamSeen = new Set();
+  // betinfo '일시' 셀 → kickoff_ts. 해석 실패 시 기존 값을 지우지 않도록 필드 자체를 뺀다.
+  const kickoffs = parseRoundKickoffs(valid.map((r) => r.datetime), { season });
 
-  for (const r of valid) {
+  for (const [vi, r] of valid.entries()) {
     const lh = leagueOf(r.home);
     const la = leagueOf(r.away);
     const league = judgeLeague(lh, la);
@@ -48,7 +51,7 @@ export async function ingestRound(totoRound, rows) {
     const { data: mRow, error: mErr } = await admin
       .from(TABLES.matches)
       .upsert(
-        { round_id: roundId, match_no: r.match_no, home: r.home, away: r.away, league, kickoff_ts: null },
+        { round_id: roundId, match_no: r.match_no, home: r.home, away: r.away, league, ...(kickoffs[vi] ? { kickoff_ts: kickoffs[vi] } : {}) },
         { onConflict: 'round_id,match_no' }
       )
       .select()

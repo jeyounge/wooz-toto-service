@@ -94,7 +94,7 @@ export function buildRoundView(round, matches, { budget = 32, tickets = [] } = {
     const newsReason = m.news_reason || null;
     const manualMarks = parseManual(m.manual_marks);
     if (!m.vote) {
-      return { no: m.match_no, home: m.home, away: m.away, league: m.league, hasVote: false, result: m.result, newsReason };
+      return { no: m.match_no, home: m.home, away: m.away, league: m.league, kickoff: m.kickoff_ts || null, hasVote: false, result: m.result, newsReason };
     }
     const crowd = [m.vote.vote_h, m.vote.vote_d, m.vote.vote_l];
     const ev = evaluateMatch(calibrateVotes(crowd[0], crowd[1], crowd[2]), { league: m.league });
@@ -104,7 +104,7 @@ export function buildRoundView(round, matches, { budget = 32, tickets = [] } = {
       : [ev.probs.pWin, ev.probs.pDraw, ev.probs.pLose].map((x) => Math.round(x));
     const probSource = m.devig ? 'devig' : 'cal';
     return {
-      no: m.match_no, home: m.home, away: m.away, league: m.league,
+      no: m.match_no, home: m.home, away: m.away, league: m.league, kickoff: m.kickoff_ts || null,
       hasVote: true, crowd, model, probSource, _ev: ev, newsReason, manualMarks,
       result: m.result, resultIdx: m.result != null ? KO_IDX[m.result] : null,
     };
