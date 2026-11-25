@@ -30,7 +30,8 @@ export const BOT_POLICY = Object.freeze({
   maxLegs: 2,
 });
 
-export const matchKeyOf = (g) => `${g.home}|${g.away}|${g.game_ts}`;
+/** 경기 키. 킥오프는 epoch(ms)로 — DB('…+00:00')와 베트맨 수집값('…Z' 등) 문자열 형식이 달라도 같은 경기로 본다. */
+export const matchKeyOf = (g) => `${g.home}|${g.away}|${new Date(g.game_ts).getTime()}`;
 
 /**
  * 이번 배치에서 살 슬립.
@@ -67,8 +68,8 @@ export function planBotBets(games, { now = Date.now(), spent = 0, usedKeys = [],
   const out = [];
   for (const s of slips) {
     if (slots <= 0) break;
-    if (s.legs.some((l) => used.has(l.key))) continue;
-    s.legs.forEach((l) => used.add(l.key));
+    if (s.legs.some((l) => used.has(matchKeyOf(l.game)))) continue;
+    s.legs.forEach((l) => used.add(matchKeyOf(l.game)));
     slots--;
     out.push({
       stake: P.unit,
