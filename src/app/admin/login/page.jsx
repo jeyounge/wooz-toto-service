@@ -18,7 +18,9 @@ export default function AdminLoginPage() {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     setLoading(false);
     if (error) { setError('로그인 실패: ' + error.message); return; }
-    router.push('/admin');
+    // ?next=/proto/... 로 들어왔으면 그 화면으로 (같은 사이트 경로만 허용)
+    const next = new URLSearchParams(window.location.search).get('next');
+    router.push(next && /^\/(?!\/)/.test(next) ? next : '/admin');
     router.refresh();
   };
 

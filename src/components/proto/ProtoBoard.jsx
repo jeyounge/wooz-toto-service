@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import ResponsibleNotice from '@/components/ResponsibleNotice';
 import { BET_GROUPS, roundSummary, typeLabel } from '@/lib/proto/accuracy';
 import { TAGS, VERDICTS, verdictOf, roundRetro } from '@/lib/proto/retro';
+import BetSlip from '@/components/proto/BetSlip';
 
 const SPORT_ORDER = ['SC', 'BK', 'VL', 'BS'];
 const SPORT_LABEL = { SC: '축구', BK: '농구', VL: '배구', BS: '야구' };
@@ -12,6 +13,8 @@ const FILTERS = [
   { id: 'all', label: '전체' },
   { id: 'overheat', label: '국내과열', test: (g) => g.pred?.flags?.includes('국내과열') },
   { id: 'value', label: '가치(EV≥1)', test: (g) => g.pred?.flags?.includes('가치') },
+  // 국내 배당 디빅만으로 만든 확률은 모든 선택지 EV가 같아(=환급률) 가치 판단이 안 된다 → 해외 확률이 있는 것만 후보
+  { id: 'cand', label: '배팅 후보', test: (g) => g.pred && g.pred.prob_source !== 'domestic' && Number(g.pred.value_ev) >= 1.02 },
   { id: 'ext', label: '해외배당', test: (g) => g.pred && g.pred.prob_source !== 'domestic' },
   { id: 'settled', label: '결과확정', test: (g) => g.result_idx != null },
   { id: 'miss', label: '오답', test: (g) => g.pred?.miss_tags != null && g.pred.retro_note != null },
@@ -48,7 +51,7 @@ function Chips({ items, value, onChange, label }) {
 }
 
 /** 선택지 셀: 표기·국내배당·우리확률·국내구매 + 픽/가치/결과 표시 */
-function OptionCell({ g, i }) {
+function OptionCell({ g, i, onPick, inSlip }) {
   const txt = [g.txt_w, g.txt_d, g.txt_l][i];
   const odds = Number([g.odds_w, g.odds_d, g.odds_l][i]);
   if (!txt || !(odds > 1)) return <td className="px-2 py-1.5 text-center text-xs text-line">—</td>;
@@ -62,7 +65,8 @@ function OptionCell({ g, i }) {
   const ring = isPick ? (decided ? (isResult ? 'ring-2 ring-pine bg-pine/10' : 'ring-2 ring-away/60 bg-away/5') : 'ring-2 ring-pine bg-pine/5') : isResult ? 'bg-paper' : '';
   return (
     <td className="px-1 py-1">
-      <div className={`rounded-lg px-2 py-1 ${ring}`}>
+      <button type="button" onClick={() => onPick?.(g, i, odds)} title="눌러서 배팅 기록에 담기/빼기" aria-pressed={!!inSlip}
+        className={`block w-full rounded-lg px-2 py-1 text-left transition-colors hover:bg-pine/5 ${ring} ${inSlip ? 'outline outline-2 outline-offset-1 outline-draw' : ''}`}>
         <div className="flex items-baseline justify-between gap-1">
           <span className={`text-xs font-bold ${COL[i]}`}>{txt}{isValue && <span className="ml-0.5 text-draw" title={`가치 픽 · 기대값 ${g.pred.value_ev}`}>★</span>}{isResult && <span className="ml-0.5 text-ink">✓</span>}</span>
           <span className="font-mono text-xs tabular-nums text-ink">{odds.toFixed(2)}</span>
@@ -71,7 +75,7 @@ function OptionCell({ g, i }) {
           <span title="우리 예측 확률">{p != null ? pct(p) : '-'}</span>
           <span title="국내 구매 비중">{crowd != null ? `구매 ${pct(crowd)}` : ''}</span>
         </div>
-      </div>
+      </button>
     </td>
   );
 }
@@ -272,6 +276,15 @@ export default function ProtoBoard({ round, games, rounds, accuracy }) {
   const [league, setLeague] = useState([]); // 빈 배열 = 전체 리그
   const [type, setType] = useState([]);
   const [filter, setFilter] = useState('all');
+  const [slip, setSlip] = useState([]); // [{game, pick_idx, odds}]
+  // 같은 게임을 다시 누르면 선택지 교체, 같은 선택지면 빼기
+  const onPick = (g, i, odds) => setSlip((cur) => {
+    const k = cur.findIndex((l) => l.game.id === g.id);
+    if (k < 0) return [...cur, { game: g, pick_idx: i, odds }];
+    if (cur[k].pick_idx === i) return cur.filter((_, x) => x !== k);
+    return cur.map((l, x) => (x === k ? { game: g, pick_idx: i, odds } : l));
+  });
+  const slipOf = useMemo(() => new Map(slip.map((l) => [l.game.id, l.pick_idx])), [slip]);
 
   const inSport = useMemo(() => games.filter((g) => g.sport_code === sport), [games, sport]);
   const leagues = useMemo(() => {
@@ -368,7 +381,7 @@ export default function ProtoBoard({ round, games, rounds, accuracy }) {
         <span>예측 <b className="text-ink">{stat.pred}</b></span>
         <span>결과확정 <b className="text-ink">{stat.settled}</b>{stat.settled === 0 && roundSettled > 0 && <span className="ml-1 font-sans text-[11px]">(회차 전체 {roundSettled})</span>}</span>
         <span>적중 <b className="text-ink">{stat.hit}</b> ({pct(stat.rate, 1)} · 예상 {pct(stat.exp, 1)})</span>
-        <span className="text-[11px]">테두리 = 예측 픽 · ★ = 가치 픽(기대값 0.95+) · ✓ = 결과</span>
+        <span className="text-[11px]">테두리 = 예측 픽 · ★ = 가치 픽(기대값 0.95+) · ✓ = 결과 · 선택지를 누르면 배팅 기록에 담김</span>
       </div>
 
       <div className="mt-4 space-y-3">
@@ -398,7 +411,7 @@ export default function ProtoBoard({ round, games, rounds, accuracy }) {
                             {g.pred?.retro_note && <span className={`rounded px-1 font-mono text-[9px] ${VERDICT_CLS[verdictOf(g.pred.miss_tags)]}`} title={g.pred.retro_note}>{VERDICTS[verdictOf(g.pred.miss_tags)].label}</span>}
                           </div>
                         </td>
-                        {[0, 1, 2].map((i) => <OptionCell key={i} g={g} i={i} />)}
+                        {[0, 1, 2].map((i) => <OptionCell key={i} g={g} i={i} onPick={onPick} inSlip={slipOf.get(g.id) === i} />)}
                         <td className="w-20 px-2 text-right font-mono text-[10px] text-sub">{g.result_score || ''}</td>
                       </tr>,
                       g.pred?.retro_note && (
@@ -421,6 +434,8 @@ export default function ProtoBoard({ round, games, rounds, accuracy }) {
       </div>
 
       <AccuracyPanel acc={accuracy} />
+
+      <BetSlip round={round} legs={slip} onChange={setSlip} />
 
       <section className="mt-8 rounded-xl border border-line bg-card p-5 text-xs leading-relaxed text-sub">
         <h2 className="font-display text-sm font-bold text-ink">예측 방법 (v1)</h2>

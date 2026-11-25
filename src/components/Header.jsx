@@ -26,6 +26,7 @@ export default function Header() {
   const links = [
     { to: '/', label: '홈' },
     { to: '/proto', label: '승부식' },
+    { to: '/proto/my', label: '내 배팅' },
     { to: '/methodology', label: '방법론' },
   ];
 
