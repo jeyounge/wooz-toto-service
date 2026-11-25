@@ -40,7 +40,7 @@ test('planBotBets: 이미 쓴 예산·이미 산 경기 반영', () => {
   assert.equal(out[0].legs[0].game_id, gs[1].id);
 });
 
-test('planBotBets: 낮은 배당 둘은 2폴로 묶어 범위에 넣고, 조합 EV = 배당 곱 절사 × 확률 곱', () => {
+test('planBotBets: 낮은 배당 둘은 2폴로 묶어 범위에 넣고, 조합 EV = 배당 곱(둘째 자리 올림) × 확률 곱', () => {
   const a = g(1.5, 0.66), b = g(1.6, 0.62); // 단폴은 1.8 미만이라 제외, 2폴 2.40 · EV 0.982
   const out = planBotBets([a, b], { now: NOW });
   assert.equal(out.length, 1);

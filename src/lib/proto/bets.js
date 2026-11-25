@@ -3,7 +3,7 @@
  *
  * 정산 규칙 (베트맨 승부식 기준, 근사):
  *  - 레그 결과 = 게임 result_idx 와 pick_idx 비교. 4(적중특례)는 해당 레그 배당 1.00 으로 처리.
- *  - 조합 배당 = 레그 배당 곱, 소수 둘째 자리 절사, 최대 100배.
+ *  - 조합 배당 = 레그 배당 곱, 소수 둘째 자리까지 올림(베트맨 규칙: 셋째 자리 이하가 있으면 무조건 올림), 최대 100배.
  *  - 적중금 = 구매금액 × 조합 배당, 10원 미만 절사. 실제 받은 금액(payout_actual)이 있으면 그 값을 쓴다.
  *  - 한 레그라도 틀리면 낙첨, 결과 대기 레그가 남으면 대기.
  */
@@ -12,12 +12,16 @@ export const STAKE_MAX = 100000;
 export const MAX_LEGS = 10;
 export const MAX_TOTAL_ODDS = 100;
 
-const trunc2 = (x) => Math.floor(x * 100 + 1e-9) / 100;
-
-/** 레그 배당 → 조합 배당 */
+/**
+ * 레그 배당 → 조합 배당. 소수 둘째 자리까지 올림 (예: 1.55 × 1.83 = 2.8365 → 2.84).
+ * 부동소수 곱(1.5 × 1.6 = 2.4000000000000004)이 한 칸 더 올라가지 않도록 배당을 정수(×100)로 바꿔 BigInt로 곱한다.
+ */
 export function comboOdds(odds) {
-  const p = odds.reduce((a, o) => a * Number(o), 1);
-  return Math.min(trunc2(p), MAX_TOTAL_ODDS);
+  if (!odds.length) return 1;
+  const prod = odds.reduce((a, o) => a * BigInt(Math.round(Number(o) * 100)), 1n); // 스케일 100^n
+  const scale = 100n ** BigInt(odds.length - 1);                                    // → 스케일 100으로
+  const cents = (prod + scale - 1n) / scale;                                        // 올림 나눗셈
+  return Math.min(Number(cents) / 100, MAX_TOTAL_ODDS);
 }
 
 /** 레그 결과: pending / hit / miss / void */

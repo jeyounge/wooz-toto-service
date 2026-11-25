@@ -5,8 +5,12 @@ import { diagnose, payoutRate } from '../src/lib/proto/analysis.js';
 
 const leg = (pick_idx, odds, result_idx) => ({ pick_idx, odds, game: { result_idx } });
 
-test('comboOdds: 곱 → 소수 둘째 자리 절사, 최대 100배', () => {
-  assert.equal(comboOdds([1.55, 1.83]), 2.83); // 2.8365
+test('comboOdds: 곱 → 소수 둘째 자리까지 올림(베트맨), 최대 100배', () => {
+  assert.equal(comboOdds([1.55, 1.83]), 2.84); // 2.8365 → 올림
+  assert.equal(comboOdds([1.5, 1.6]), 2.4);    // 딱 떨어지면 그대로 (부동소수 2.4000000000000004 → 2.41 아님)
+  assert.equal(comboOdds([1.01, 1.01]), 1.03); // 1.0201 → 1.03
+  assert.equal(comboOdds([2.33]), 2.33);       // 단폴은 그대로
+  assert.equal(comboOdds([1.11, 1.11, 1.11]), 1.37); // 1.367631 → 1.37
   assert.equal(comboOdds([10, 10, 2]), 100);
 });
 
