@@ -12,6 +12,10 @@ import { comboOdds, validateSlip, slipModel } from '@/lib/proto/bets';
  * @param {{roundId:number, stake:number, note?:string, legs:Array<{game_id:number, pick_idx:number, odds:number}>}} input
  *        odds는 실제 구매한 배당(베트맨 배당 변동 시 사용자가 고친 값). 없으면 현재 배당.
  */
+// 0009 마이그레이션 전이면 테이블이 없다 → 원인을 바로 알 수 있게 안내
+const noTable = (e) => /PGRST205|42P01/.test(e?.code || '') || /does not exist|Could not find the table/i.test(e?.message || '');
+const failMsg = (e) => (noTable(e) ? '배팅 기록 테이블이 아직 없습니다 — Supabase에서 0009 마이그레이션을 먼저 실행하세요.' : `저장 실패: ${e.message}`);
+
 export async function saveProtoBet({ roundId, stake, note, legs }) {
   const s = await createClient();
   const { data: { user } } = await s.auth.getUser();
@@ -46,12 +50,12 @@ export async function saveProtoBet({ roundId, stake, note, legs }) {
     user_id: user.id, round_id: Number(roundId), stake: Number(stake), total_odds: total,
     model_prob: prob == null ? null : Math.round(prob * 1e6) / 1e6, note: note?.trim() || null,
   }).select('id').single();
-  if (bErr) return { ok: false, message: `저장 실패: ${bErr.message}` };
+  if (bErr) return { ok: false, message: failMsg(bErr) };
 
   const { error: lErr } = await s.from(TABLES.protoBetLegs).insert(rows.map(({ match_key, ...r }) => ({ bet_id: bet.id, ...r })));
   if (lErr) {
     await s.from(TABLES.protoBets).delete().eq('id', bet.id);
-    return { ok: false, message: `저장 실패: ${lErr.message}` };
+    return { ok: false, message: failMsg(lErr) };
   }
   revalidatePath('/proto/my');
   return { ok: true, message: `저장 완료 — ${rows.length}게임 · 배당 ${total.toFixed(2)} · ${Number(stake).toLocaleString('ko-KR')}원` };
