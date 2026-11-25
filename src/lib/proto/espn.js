@@ -82,6 +82,11 @@ export async function fetchEspnEvents(path, dates) {
       const line = Number(ps?.home?.close?.line);
       const ph = am2dec(ps?.home?.close?.odds), pa = am2dec(ps?.away?.close?.odds);
       if (Number.isFinite(line) && ph && pa) ev.spread = { line, pHome: (1 / ph) / (1 / ph + 1 / pa) };
+      // 토탈(언오버): line 표기가 'o220.5' 형태일 수 있어 숫자만. 없으면 overUnder 필드.
+      const tt = o.total;
+      const tLine = Number(String(tt?.over?.close?.line ?? tt?.over?.open?.line ?? o.overUnder ?? '').replace(/[^0-9.]/g, ''));
+      const po = am2dec(tt?.over?.close?.odds ?? tt?.over?.open?.odds), pu = am2dec(tt?.under?.close?.odds ?? tt?.under?.open?.odds);
+      if (tLine > 0) ev.total = { line: tLine, pOver: po && pu ? (1 / po) / (1 / po + 1 / pu) : 0.5 };
       out.push(ev);
     }
   }
@@ -122,7 +127,7 @@ export async function matchExternal(items) {
     for (const { it, ev, dist, sim } of pairs) {
       if (dist > MAX_DIST || usedIt.has(it.key) || usedEv.has(ev.id)) continue;
       usedIt.add(it.key); usedEv.add(ev.id);
-      out.set(it.key, { p1x2: ev.p1x2, pML: ev.pML, spread: ev.spread, espnLabel: ev.label, dist, sim });
+      out.set(it.key, { p1x2: ev.p1x2, pML: ev.pML, spread: ev.spread, total: ev.total, espnLabel: ev.label, dist, sim });
     }
   }
   return out;

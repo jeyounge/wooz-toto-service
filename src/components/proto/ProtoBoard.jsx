@@ -5,6 +5,7 @@ import ResponsibleNotice from '@/components/ResponsibleNotice';
 import { BET_GROUPS, roundSummary, typeLabel } from '@/lib/proto/accuracy';
 import { TAGS, VERDICTS, verdictOf, roundRetro } from '@/lib/proto/retro';
 import BetSlip from '@/components/proto/BetSlip';
+import { recommendCombos } from '@/lib/proto/combos';
 
 const SPORT_ORDER = ['SC', 'BK', 'VL', 'BS'];
 const SPORT_LABEL = { SC: '축구', BK: '농구', VL: '배구', BS: '야구' };
@@ -216,6 +217,51 @@ function RetroPanel({ scoped, scopeLabel }) {
   );
 }
 
+/** 추천 조합: 해외 확률 + 기대값 1.02 이상 후보로 만든 2폴·3폴. '담기'로 배팅 슬립에 바로 */
+function ComboPanel({ games, onLoad }) {
+  const [now] = useState(() => Date.now());
+  const r = useMemo(() => recommendCombos(games, { now }), [games, now]);
+  const [tab, setTab] = useState('pairs');
+  const list = r[tab];
+  const legTxt = (l) => [l.game.txt_w, l.game.txt_d, l.game.txt_l][l.pick_idx];
+  return (
+    <section className="mt-4 rounded-xl border border-line bg-card p-4">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="font-display text-base font-bold text-ink">추천 조합</h2>
+        <Chips items={[{ id: 'pairs', label: '2폴' }, { id: 'triples', label: '3폴' }]} value={tab} onChange={setTab} />
+      </div>
+      {r.candidates.length < 2 ? (
+        <p className="mt-2 text-sm text-sub">지금은 조건(킥오프 전 · 해외 확률 있음 · 배당×확률 1.02 이상 · 확률 30% 이상)에 맞는 게임이 {r.candidates.length}개라 조합을 만들지 않습니다. 억지로 사지 않는 것도 전략입니다.</p>
+      ) : (
+        <ul className="mt-3 space-y-2">
+          {list.map((c, n) => (
+            <li key={n} className="rounded-lg bg-paper p-3">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-xs tabular-nums">
+                <span className="text-ink">배당 <b>{c.odds.toFixed(2)}</b></span>
+                <span className="text-sub">적중확률 <b className="text-ink">{pct(c.prob, 1)}</b></span>
+                <span className={c.ev >= 1 ? 'text-pine' : 'text-sub'}>기대 회수율 <b>{c.ev.toFixed(2)}</b></span>
+                <button onClick={() => onLoad(c.legs)} className="ml-auto rounded-full border border-pine px-3 py-0.5 font-sans text-[11px] font-semibold text-pine hover:bg-pine hover:text-white">슬립에 담기</button>
+              </div>
+              <ul className="mt-1.5 space-y-0.5 text-xs">
+                {c.legs.map((l) => (
+                  <li key={l.game.id} className="flex flex-wrap items-baseline gap-x-2">
+                    <span className="rounded bg-card px-1.5 font-mono text-[10px] text-sub">{l.game.league_short || l.game.league}</span>
+                    <span className="text-ink">{l.game.home} vs {l.game.away}</span>
+                    <span className="text-sub">{typeLabel(l.game)}{handiLabel(l.game)}</span>
+                    <b className="text-ink">{legTxt(l)} {l.odds.toFixed(2)}</b>
+                    <span className="font-mono text-[10px] text-sub">확률 {pct(l.prob)} · EV {l.ev.toFixed(2)}</span>
+                  </li>
+                ))}
+              </ul>
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="mt-2 text-[11px] text-sub">해외 배당 기준 확률로 고른 참고 조합입니다. 게임끼리 독립이라고 가정했고, 레그가 늘수록 기대값보다 운의 폭이 훨씬 커집니다. 수익을 보장하지 않습니다.</p>
+    </section>
+  );
+}
+
 function AccuracyPanel({ acc }) {
   const [axis, setAxis] = useState('sport');
   const AXES = [{ id: 'sport', label: '종목' }, { id: 'league', label: '리그' }, { id: 'group', label: '유형군' }, { id: 'type', label: '세부유형' }, { id: 'flag', label: '플래그' }, { id: 'source', label: '확률원천' }];
@@ -227,7 +273,7 @@ function AccuracyPanel({ acc }) {
     </section>
   );
   const rows = Object.entries(acc[axis] || {});
-  const SRC = { domestic: '국내배당', espn: '해외배당', espn_spread: '해외 스프레드' };
+  const SRC = { domestic: '국내배당', espn: '해외배당', espn_spread: '해외 스프레드', espn_line: '해외 라인(농구)' };
   return (
     <section className="mt-10 rounded-xl border border-line bg-card p-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -369,6 +415,8 @@ export default function ProtoBoard({ round, games, rounds, accuracy }) {
         scopeLabel={scopeLabel}
       />
 
+      <ComboPanel games={games} onLoad={(legs) => setSlip(legs.map((l) => ({ game: l.game, pick_idx: l.pick_idx, odds: l.odds })))} />
+
       <div className="mt-4 space-y-2">
         <Chips label="리그 · 중복" items={leagues} value={league} onChange={pickLeague} />
         <Chips label="유형 · 중복" items={types} value={type} onChange={pickType} />
@@ -441,6 +489,7 @@ export default function ProtoBoard({ round, games, rounds, accuracy }) {
         <h2 className="font-display text-sm font-bold text-ink">예측 방법 (v1)</h2>
         <ul className="mt-2 list-disc space-y-1 pl-4">
           <li>확률은 해외 배당(ESPN · DraftKings)을 우선하고, 없으면 국내 배당에서 마진을 걷어낸 값을 씁니다. 배당은 가격이고 구매 쏠림은 아니기 때문입니다.</li>
+          <li>농구(NBA) 핸디·언오버는 해외 스프레드·토탈 라인을 정규분포(점수차 σ12, 총점 σ18)로 옮겨 베트맨 기준점의 확률을 계산합니다. 기준점이 해외 라인과 가까울수록 정확합니다.</li>
           <li>1골 핸디는 해외 승무패만으로 정확히 계산합니다(홈 −1 패 = 홈 못 이김, 홈 +1 승 = 홈 안 짐). 2골 차 확률은 해외 ±1.5 스프레드가 있을 때만 씁니다.</li>
           <li><b className="text-away">국내과열</b>: 예측 픽의 국내 구매 비중이 확률보다 15%p 이상 높을 때. 토토 승무패 복기에서 이런 정배가 자주 깨졌습니다.</li>
           <li><b className="text-draw">저평가무</b>: 무의 국내 배당 × 확률이 0.95 이상. <b className="text-ink">★ 가치 픽</b>: 확률 20% 이상 선택지 중 국내 배당 × 확률이 가장 큰 것.</li>
