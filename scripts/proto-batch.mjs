@@ -10,7 +10,7 @@ import { predictGame, devig, isHit, MODEL_VERSION } from '../src/lib/proto/predi
 import { matchExternal, matchEspnFinals, fetchMatchContext } from '../src/lib/proto/espn.js';
 import { classifyPred, rawScoreOf, verdictOf } from '../src/lib/proto/retro.js';
 import { isFirstHalf } from '../src/lib/proto/accuracy.js';
-import { planBotBets, matchKeyOf, BOT_ID } from '../src/lib/proto/bot.js';
+import { planBotBets, BOT_ID } from '../src/lib/proto/bot.js';
 import { TABLES } from '../src/lib/tables.js';
 
 const env = {};
@@ -122,20 +122,19 @@ async function processRound(gmTs, saleEndTs) {
 }
 
 /**
- * Claude 배팅 (bot.js): 이번 배치에서 갓 계산한 예측으로 회차 예산 안에서 산다.
- * 이미 산 금액·경기는 DB에서 다시 읽어 배치가 여러 번 돌아도 예산·중복을 넘지 않는다.
+ * Claude 배팅 (bot.js): 이번 배치에서 갓 계산한 예측으로 회차 예산(나눠 쓰기 상한) 안에서 산다.
+ * 이미 산 슬립(금액·경기·결과)은 DB에서 다시 읽어 배치가 여러 번 돌아도 예산·중복을 넘지 않고, 직전 결과로 모드를 정한다.
  */
 async function botRound(roundId, gmTs, gameRows, idOf, preds) {
   const { data: prevBets, error } = await db.from(TABLES.protoBotBets)
-    .select(`stake, legs:${TABLES.protoBotBetLegs}(game:${TABLES.protoGames}(home, away, game_ts))`)
+    .select(`stake, total_odds, legs:${TABLES.protoBotBetLegs}(pick_idx, odds, game:${TABLES.protoGames}(home, away, game_ts, result_idx))`)
     .eq('round_id', roundId).eq('bot', BOT_ID);
   if (error) throw new Error(error.message);
-  const spent = (prevBets || []).reduce((a, b) => a + b.stake, 0);
-  const usedKeys = (prevBets || []).flatMap((b) => (b.legs || []).map((l) => l.game && matchKeyOf(l.game)).filter(Boolean));
   const predOf = new Map(preds.map((p) => [p.game_id, p]));
-  const games = gameRows.map((r) => ({ ...r, id: idOf.get(r.match_seq), pred: predOf.get(idOf.get(r.match_seq)) || null })).filter((g) => g.id && g.pred);
-  const plan = planBotBets(games, { now, spent, usedKeys });
-  for (const s of plan) {
+  // 회차 전 게임(예산 풀림 비율 계산용). 예측 없는 게임은 후보에서 자동 제외된다.
+  const games = gameRows.map((r) => ({ ...r, id: idOf.get(r.match_seq), pred: predOf.get(idOf.get(r.match_seq)) || null })).filter((g) => g.id);
+  const plan = planBotBets(games, { now, prevBets: prevBets || [] });
+  for (const s of plan.bets) {
     const { data: bet, error: e1 } = await db.from(TABLES.protoBotBets)
       .insert({ bot: BOT_ID, round_id: roundId, stake: s.stake, total_odds: s.total_odds, model_prob: s.model_prob, reason: s.reason })
       .select('id').single();
@@ -143,7 +142,8 @@ async function botRound(roundId, gmTs, gameRows, idOf, preds) {
     const { error: e2 } = await db.from(TABLES.protoBotBetLegs).insert(s.legs.map((l) => ({ bet_id: bet.id, ...l })));
     if (e2) { await db.from(TABLES.protoBotBets).delete().eq('id', bet.id); throw new Error(e2.message); }
   }
-  log(`   ${gmTs} Claude 배팅 ${plan.length}장 신규 (회차 누적 ${(spent + plan.reduce((a, s) => a + s.stake, 0)).toLocaleString('ko-KR')}원)`);
+  const total = plan.spent + plan.bets.reduce((a, s) => a + s.stake, 0);
+  log(`   ${gmTs} Claude 배팅 [${plan.mode}] ${plan.bets.length}장 신규 · 누적 ${total.toLocaleString('ko-KR')}원 / 현재 상한 ${plan.cap.toLocaleString('ko-KR')}원`);
 }
 
 /** 회차 적중 요약 (확정 경기 기준) */

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import ResponsibleNotice from '@/components/ResponsibleNotice';
 import { settleBet, summarizeBets } from '@/lib/proto/bets';
 import { deleteProtoBet, setProtoBetPayout } from '@/app/proto/actions';
+import { BOT_RULES_TEXT } from '@/lib/proto/bot';
 
 const won = (x) => (x == null ? '-' : `${Math.round(x).toLocaleString('ko-KR')}원`);
 const signed = (x) => (x == null ? '-' : `${x > 0 ? '+' : ''}${Math.round(x).toLocaleString('ko-KR')}원`);
@@ -125,7 +126,7 @@ function CompareTable({ mine, bot, showRounds }) {
     <section className="mt-6 space-y-4 rounded-xl border border-line bg-card p-4">
       <div>
         <div className="text-xs font-semibold text-ink">나 vs Claude</div>
-        <p className="mt-0.5 text-[11px] text-sub">Claude는 회차당 10만원(2만원 × 최대 5장)을 규칙대로 스스로 삽니다: 킥오프 24시간 안 · 해외 확률 있는 게임만 · 단폴/2폴 배당 1.8~3.5 · 기대 회수율 0.93 이상만, 미달이면 안 삼. 실제 구매가 아닌 모의 기록입니다.</p>
+        <p className="mt-0.5 text-[11px] text-sub">{BOT_RULES_TEXT}</p>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full min-w-[560px] text-xs">
@@ -216,7 +217,7 @@ export default function MyBets({ bets, botBets = null }) {
 
       {view === 'bot' && bots.length > 0 ? (
         <section className="mt-4 space-y-3">
-          {botShown.length === 0 && <div className="rounded-xl border border-line bg-card p-6 text-center text-sm text-sub">이 회차에는 기준(기대 회수율 0.93)을 넘는 슬립이 없어 사지 않았습니다.</div>}
+          {botShown.length === 0 && <div className="rounded-xl border border-line bg-card p-6 text-center text-sm text-sub">이 회차에는 아직 Claude가 산 슬립이 없습니다. (기준 미달이거나 예산이 아직 풀리지 않음)</div>}
           {botShown.map((b) => <BetCard key={b.id} bet={b} readOnly />)}
         </section>
       ) : bets.length === 0 ? (
