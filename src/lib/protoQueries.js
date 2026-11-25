@@ -55,3 +55,21 @@ export async function getProtoAccuracy() {
   }
   return aggregateAccuracy(games.map(withPred));
 }
+
+/**
+ * 로그인 사용자의 배팅 기록 전체 (RLS: 본인 것만). 로그인 안 했으면 {user:null}.
+ * 각 슬립에 회차·레그·게임(결과 포함)을 붙여 settleBet/summarizeBets에 바로 넣을 수 있게 돌려준다.
+ */
+export async function getMyProtoBets() {
+  const s = await createClient();
+  const { data: { user } } = await s.auth.getUser();
+  if (!user) return { user: null, bets: [] };
+  const { data, error } = await s.from(TABLES.protoBets)
+    .select(`id, round_id, stake, total_odds, model_prob, payout_actual, note, is_public, placed_ts,
+      round:${TABLES.protoRounds}(gm_ts),
+      legs:${TABLES.protoBetLegs}(id, game_id, pick_idx, odds, model_prob,
+        game:${TABLES.protoGames}(match_seq, sport_code, league_short, league, home, away, game_ts, bet_type_id, bet_type, bet_name, handi, txt_w, txt_d, txt_l, result_idx, result_score))`)
+    .eq('user_id', user.id).order('placed_ts', { ascending: false }).limit(2000);
+  if (error) throw new Error(`getMyProtoBets: ${error.message}`);
+  return { user: { id: user.id, email: user.email }, bets: (data || []).map((b) => ({ ...b, round_gm_ts: b.round?.gm_ts ?? null })) };
+}
