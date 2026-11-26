@@ -15,11 +15,22 @@
  *     - 낙첨 후(safe): 확률 우선 — 2만원 · 1.8~2.6 · ≥ 42%
  *  5) 모드 조건을 통과한 슬립 중 기대 회수율(조합 배당 × 확률곱) 높은 순, minEv 미만은 사지 않는다.
  *  ※ 국내과열 반대(◆)는 쓰지 않는다: 132건 재집계 ROI −0.8%로 우위가 사라졌고, 축구 언오버는 해외 확률이 없다.
+ *
+ * 규칙 v3 (2026-11-27, 사용자 요청: 해외 배당 없는 게임도 국내배당으로 분석해 산다)
+ *  6) 국내배당만 있는 게임도 후보. 확률 = 국내 디빅 × 구간별 보정(domesticCal.js, 우리 DB 확정 경기로 측정).
+ *     정보가 해외보다 약하므로 별도 칸으로 관리한다:
+ *     - 국내 레그가 하나라도 낀 슬립 = '국내포함' 슬립: 1만원 고정 · 회차 예산의 20%까지 · 슬립 기대 회수율 ≥ 0.78
+ *       (국내 레그 하나 EV ≈ 0.87~0.90 → 2폴 ≈ 0.76~0.81. 환급률 한계 안에서 가장 나은 것만)
+ *     - 해외 확률만으로 된 슬립을 먼저 사고, 남은 예산·경기로 국내포함 슬립을 산다.
+ *     - 국내 레그 후보는 해외 후보(maxCands)와 따로 domMaxCands개 (홀짝 같은 0.9 레그가 해외 후보를 밀어내지 않게).
+ *     - 국내 게임은 경기당 마켓 domPerMatch개까지 후보(홀짝만 남으면 2폴 확률 25% < 28%). 같은 경기끼리는 한 슬립에 묶지 않는다.
  */
 import { comboCandidates } from './combos.js';
 import { comboOdds, settleBet } from './bets.js';
 
-export const BOT_ID = 'claude-v2';
+const DOM_TAG = '국내포함';
+
+export const BOT_ID = 'claude-v3';
 export const BOT_POLICY = Object.freeze({
   budget: 100000,   // 회차 예산(원)
   step: 10000,      // 금액 단위(원)
@@ -31,6 +42,9 @@ export const BOT_POLICY = Object.freeze({
   minLegs: 2,
   maxLegs: 3,
   minEv: 0.88,      // 슬립 기대 회수율 하한
+  domMaxCands: 30,  // 국내 레그 후보 수 (EV 상위) — 홀짝(0.90)이 위를 채우므로 승패·핸디까지 들어오게 넉넉히
+  domPerMatch: 3,   // 국내 게임은 경기당 마켓 3개까지 후보 (홀짝만 남으면 2폴 확률이 25%라 조합이 안 됨)
+  domestic: { stake: 10000, capShare: 0.2, minEv: 0.78 }, // 국내포함 슬립 칸
   modes: {
     normal: { label: '기본', stake: 20000, oddsMin: 2.0, oddsMax: 3.5, minProb: 0.28 },
     press: { label: '적중 후 저배당 증액', stake: 30000, oddsMin: 1.8, oddsMax: 2.6, minProb: 0.38 },
@@ -70,28 +84,37 @@ export function spendCap(games, { now = Date.now(), policy = BOT_POLICY } = {}) 
  * @param {{now?:number, prevBets?:Array, policy?:object}} opts prevBets = 이 회차에 이미 산 Claude 슬립(레그·게임 포함)
  * @returns {{mode:string, cap:number, spent:number, bets:Array<{stake, total_odds, model_prob, ev, reason, legs}>}}
  */
-export function planBotBets(games, { now = Date.now(), prevBets = [], policy = BOT_POLICY } = {}) {
+export function planBotBets(games, { now = Date.now(), prevBets = [], policy = BOT_POLICY, domesticCal = null, onlyGameIds = null } = {}) {
   const P = { ...BOT_POLICY, ...policy };
   const mode = botMode(prevBets);
   const M = P.modes[mode];
   const spent = prevBets.reduce((a, b) => a + Number(b.stake), 0);
   const cap = Math.min(spendCap(games, { now, policy: P }), P.budget);
   const used = new Set(prevBets.flatMap((b) => (b.legs || []).map((l) => l.game && matchKeyOf(l.game)).filter(Boolean)));
+  const domSpent = prevBets.filter((b) => String(b.reason || '').startsWith(DOM_TAG)).reduce((a, b) => a + Number(b.stake), 0);
   const out = { mode, cap, spent, bets: [] };
   let room = cap - spent;
+  let domRoom = Math.floor((P.budget * P.domestic.capShare) / P.step) * P.step - domSpent;
   if (room < P.step) return out;
 
   const horizon = now + P.horizonH * 3600e3;
-  const near = games.filter((g) => g.game_ts && new Date(g.game_ts).getTime() <= horizon && !used.has(matchKeyOf(g)));
-  const cands = comboCandidates(near, { now: now + P.minLeadMin * 60e3, minEv: P.legMinEv, minProb: P.legMinProb }).slice(0, P.maxCands);
+  const near = games.filter((g) => g.game_ts && new Date(g.game_ts).getTime() <= horizon && !used.has(matchKeyOf(g))
+    && (!onlyGameIds || onlyGameIds.has(g.id)));
+  const lead = { now: now + P.minLeadMin * 60e3, minEv: P.legMinEv, minProb: P.legMinProb };
+  const cands = [
+    ...comboCandidates(near, lead).slice(0, P.maxCands),
+    ...(domesticCal ? comboCandidates(near.filter((g) => g.pred?.prob_source === 'domestic'), { ...lead, domesticCal, perMatch: P.domPerMatch }).slice(0, P.domMaxCands) : []),
+  ];
 
   const slips = [];
   const consider = (legs) => {
+    if (new Set(legs.map((l) => matchKeyOf(l.game))).size < legs.length) return; // 같은 경기 다른 마켓끼리는 못 묶는다
     const odds = comboOdds(legs.map((l) => l.odds));
     if (odds < M.oddsMin || odds > M.oddsMax) return;
     const prob = legs.reduce((a, l) => a * l.prob, 1);
     const ev = odds * prob;
-    if (prob >= M.minProb && ev >= P.minEv) slips.push({ legs, odds, prob, ev });
+    const domestic = legs.some((l) => l.domestic);
+    if (prob >= M.minProb && ev >= (domestic ? P.domestic.minEv : P.minEv)) slips.push({ legs, odds, prob, ev, domestic });
   };
   const n = cands.length;
   for (let i = 0; i < n; i++) {
@@ -100,22 +123,25 @@ export function planBotBets(games, { now = Date.now(), prevBets = [], policy = B
       if (P.maxLegs >= 3) for (let k = j + 1; k < n; k++) consider([cands[i], cands[j], cands[k]]);
     }
   }
-  // 기대 회수율 우선, 근소하면(0.005) 적중확률 높은 쪽
-  slips.sort((a, b) => (Math.abs(b.ev - a.ev) > 0.005 ? b.ev - a.ev : b.prob - a.prob));
+  // 해외 확률만으로 된 슬립 먼저, 그다음 국내포함. 각각 기대 회수율 우선, 근소하면(0.005) 적중확률 높은 쪽
+  slips.sort((a, b) => (a.domestic !== b.domestic ? (a.domestic ? 1 : -1)
+    : Math.abs(b.ev - a.ev) > 0.005 ? b.ev - a.ev : b.prob - a.prob));
 
   for (const s of slips) {
-    const stake = Math.min(M.stake, Math.floor(room / P.step) * P.step);
-    if (stake < P.step) break;
+    const limit = s.domestic ? Math.min(room, domRoom) : room;
+    const stake = Math.min(s.domestic ? P.domestic.stake : M.stake, Math.floor(limit / P.step) * P.step);
+    if (stake < P.step) { if (s.domestic) continue; break; }
     const keys = s.legs.map((l) => matchKeyOf(l.game));
     if (keys.some((k) => used.has(k))) continue;
     keys.forEach((k) => used.add(k));
     room -= stake;
+    if (s.domestic) domRoom -= stake;
     out.bets.push({
       stake,
       total_odds: s.odds,
       model_prob: s.prob,
       ev: s.ev,
-      reason: `${M.label} · ${s.legs.length}폴 · EV ${s.ev.toFixed(3)} · 확률 ${Math.round(s.prob * 100)}% · ${BOT_ID}`,
+      reason: `${s.domestic ? `${DOM_TAG} · ` : ''}${M.label} · ${s.legs.length}폴 · EV ${s.ev.toFixed(3)} · 확률 ${Math.round(s.prob * 100)}% · ${BOT_ID}`,
       legs: s.legs.map((l) => ({ game_id: l.game.id, pick_idx: l.pick_idx, odds: l.odds, model_prob: l.prob })),
     });
   }
@@ -123,4 +149,4 @@ export function planBotBets(games, { now = Date.now(), prevBets = [], policy = B
 }
 
 /** 화면 안내용 규칙 요약 (UI와 규칙을 한 곳에서 관리) */
-export const BOT_RULES_TEXT = `회차당 10만원을 회차 진행에 맞춰 나눠 씁니다(24시간 안에 시작하는 게임 비율만큼 예산이 풀림). 2·3폴만 사고(단폴 없음), 해외 확률이 있는 게임만, 기대 회수율 ${BOT_POLICY.minEv} 이상만 삽니다. 직전 슬립이 적중하면 저배당(1.8~2.6)에 3만원으로 늘리고, 낙첨하면 적중확률 42% 이상인 슬립만 삽니다. 실제 구매가 아닌 모의 기록입니다.`;
+export const BOT_RULES_TEXT = `회차당 10만원을 회차 진행에 맞춰 나눠 씁니다(24시간 안에 시작하는 게임 비율만큼 예산이 풀림). 2·3폴만 사고(단폴 없음), 해외 확률 슬립은 기대 회수율 ${BOT_POLICY.minEv} 이상만 삽니다. 해외 배당이 없는 게임은 국내배당을 우리 기록(배당 구간별 실제 적중률)으로 보정해 '국내포함' 슬립으로 1만원씩, 회차 예산의 ${Math.round(BOT_POLICY.domestic.capShare * 100)}%까지만 삽니다. 직전 슬립이 적중하면 저배당(1.8~2.6)에 3만원으로 늘리고, 낙첨하면 적중확률 42% 이상인 슬립만 삽니다. 실제 구매가 아닌 모의 기록입니다.`;

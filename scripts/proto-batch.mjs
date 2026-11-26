@@ -2,6 +2,7 @@
 // 사용: node scripts/proto-batch.mjs [gmTs...]
 //   인자 없으면: 발매 중 회차 + 결과 대기 경기가 남은 최근 회차를 자동 처리.
 //   PREDICT=0 이면 예측 갱신 생략, NOESPN=1 이면 해외 배당·경기 기록 생략, RETRO=0 이면 복기 생략, BOT=0 이면 Claude 배팅 생략.
+//   BOT_LEAGUE=남농월예 / BOT_UNTIL=2026-11-27T15:00+09:00 을 주면 이번 배치의 Claude 배팅 후보를 그 리그(league_short)·킥오프 시각까지로 한정한다(요청 경기만 살 때).
 // 원칙: 예측은 킥오프 전까지만 갱신하고 킥오프 후에는 동결 → 적중률이 사후 보정 없이 기록된다.
 import { readFileSync, appendFileSync, mkdirSync } from 'fs';
 import { createClient } from '@supabase/supabase-js';
@@ -11,6 +12,7 @@ import { matchExternal, matchEspnFinals, fetchMatchContext } from '../src/lib/pr
 import { classifyPred, rawScoreOf, verdictOf } from '../src/lib/proto/retro.js';
 import { isFirstHalf } from '../src/lib/proto/accuracy.js';
 import { planBotBets, BOT_ID } from '../src/lib/proto/bot.js';
+import { buildDomesticCal } from '../src/lib/proto/domesticCal.js';
 import { TABLES } from '../src/lib/tables.js';
 
 const env = {};
@@ -127,13 +129,18 @@ async function processRound(gmTs, saleEndTs) {
  */
 async function botRound(roundId, gmTs, gameRows, idOf, preds) {
   const { data: prevBets, error } = await db.from(TABLES.protoBotBets)
-    .select(`stake, total_odds, legs:${TABLES.protoBotBetLegs}(pick_idx, odds, game:${TABLES.protoGames}(home, away, game_ts, result_idx))`)
+    .select(`stake, total_odds, reason, legs:${TABLES.protoBotBetLegs}(pick_idx, odds, game:${TABLES.protoGames}(home, away, game_ts, result_idx))`)
     .eq('round_id', roundId).eq('bot', BOT_ID);
   if (error) throw new Error(error.message);
   const predOf = new Map(preds.map((p) => [p.game_id, p]));
   // 회차 전 게임(예산 풀림 비율 계산용). 예측 없는 게임은 후보에서 자동 제외된다.
   const games = gameRows.map((r) => ({ ...r, id: idOf.get(r.match_seq), pred: predOf.get(idOf.get(r.match_seq)) || null })).filter((g) => g.id);
-  const plan = planBotBets(games, { now, prevBets: prevBets || [] });
+  const domesticCal = await loadDomesticCal();
+  const until = process.env.BOT_UNTIL ? new Date(process.env.BOT_UNTIL).getTime() : Infinity;
+  const only = process.env.BOT_LEAGUE || process.env.BOT_UNTIL
+    ? new Set(games.filter((g) => (!process.env.BOT_LEAGUE || g.league_short === process.env.BOT_LEAGUE) && new Date(g.game_ts).getTime() <= until).map((g) => g.id))
+    : null;
+  const plan = planBotBets(games, { now, prevBets: prevBets || [], domesticCal, onlyGameIds: only });
   for (const s of plan.bets) {
     const { data: bet, error: e1 } = await db.from(TABLES.protoBotBets)
       .insert({ bot: BOT_ID, round_id: roundId, stake: s.stake, total_odds: s.total_odds, model_prob: s.model_prob, reason: s.reason })
@@ -144,6 +151,23 @@ async function botRound(roundId, gmTs, gameRows, idOf, preds) {
   }
   const total = plan.spent + plan.bets.reduce((a, s) => a + s.stake, 0);
   log(`   ${gmTs} Claude 배팅 [${plan.mode}] ${plan.bets.length}장 신규 · 누적 ${total.toLocaleString('ko-KR')}원 / 현재 상한 ${plan.cap.toLocaleString('ko-KR')}원`);
+}
+
+/** 국내배당 보정표: DB의 결과 확정 게임 전체(배당 구간 → 실제 적중률). 배치당 한 번만 읽는다. */
+let domCalCache = null;
+async function loadDomesticCal() {
+  if (domCalCache) return domCalCache;
+  const rows = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await db.from(TABLES.protoGames).select('odds_w, odds_d, odds_l, result_idx')
+      .not('result_idx', 'is', null).neq('result_idx', 4).order('id').range(from, from + 999);
+    if (error) throw new Error(`보정표: ${error.message}`);
+    rows.push(...(data || []));
+    if (!data || data.length < 1000) break;
+  }
+  domCalCache = buildDomesticCal(rows);
+  log(`   국내배당 보정표: 확정 ${rows.length}경기 · 계수 ${domCalCache.map((b) => b.factor.toFixed(3)).join('/')}`);
+  return domCalCache;
 }
 
 /** 회차 적중 요약 (확정 경기 기준) */
