@@ -21,9 +21,9 @@ const matchKey = (g) => `${g.home}|${g.away}|${g.game_ts}`;
 /**
  * 회차 게임 → 레그 후보 [{game, pick_idx, odds, prob, ev, domestic}] (EV 내림차순, 경기당 perMatch개 — 기본 1)
  * domesticCal(domesticCal.js 보정표)을 주면 국내배당만 있는 게임도 보정 확률로 후보에 넣는다(domestic: true).
- * perMatch > 1이면 같은 경기의 다른 마켓도 후보로 남긴다(게임 행당 1개). 조합 쪽에서 같은 경기끼리는 묶지 않아야 한다.
+ * perMatch > 1이면 같은 경기의 다른 마켓·선택지도 후보로 남긴다. 조합 쪽에서 같은 경기끼리는 묶지 않아야 한다.
  */
-export function comboCandidates(games, { now = Date.now(), minEv = COMBO_MIN_EV, minProb = COMBO_MIN_PROB, domesticCal = null, perMatch = 1 } = {}) {
+export function comboCandidates(games, { now = Date.now(), minEv = COMBO_MIN_EV, minProb = COMBO_MIN_PROB, domesticCal = null, perMatch = 1, drawMinProb = minProb } = {}) {
   // EV 근소(0.005)하면 적중확률 높은 쪽 — 국내 디빅은 선택지 EV가 모두 같아서 이게 없으면 부동소수 오차로 역배가 뽑힌다
   const better = (x, y) => x.ev > y.ev + 0.005 || (Math.abs(x.ev - y.ev) <= 0.005 && x.prob > y.prob);
   const byMatch = new Map();
@@ -36,14 +36,16 @@ export function comboCandidates(games, { now = Date.now(), minEv = COMBO_MIN_EV,
     const odds = [g.odds_w, g.odds_d, g.odds_l].map((o) => (o == null ? 0 : Number(o)));
     const probs = domestic ? calibrateDomestic(odds, domesticCal) : [p.p_w, p.p_d, p.p_l].map(Number);
     const k = matchKey(g);
-    let top = null; // 이 게임 행에서 최선 1개
+    // perMatch 1: 이 게임 행에서 최선 1개. perMatch > 1: 행의 다른 선택지(예: 무)도 남겨 경기 단위로 상위 perMatch개
+    let legs = [];
     for (let i = 0; i < 3; i++) {
-      if (!(odds[i] > 1) || !(probs[i] >= minProb)) continue;
+      if (!(odds[i] > 1) || !(probs[i] >= (i === 1 ? drawMinProb : minProb))) continue;
       const leg = { game: g, pick_idx: i, odds: odds[i], prob: probs[i], ev: odds[i] * probs[i], key: k, domestic };
       if (leg.ev < minEv) continue;
-      if (!top || better(leg, top)) top = leg;
+      if (perMatch > 1) legs.push(leg);
+      else if (!legs.length || better(leg, legs[0])) legs = [leg];
     }
-    if (top) { if (!byMatch.has(k)) byMatch.set(k, []); byMatch.get(k).push(top); }
+    if (legs.length) { if (!byMatch.has(k)) byMatch.set(k, []); byMatch.get(k).push(...legs); }
   }
   const out = [];
   for (const legs of byMatch.values()) out.push(...legs.sort((x, y) => (better(x, y) ? -1 : better(y, x) ? 1 : 0)).slice(0, perMatch));

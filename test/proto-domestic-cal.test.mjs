@@ -49,12 +49,12 @@ test('planBotBets v3: 국내배당 게임은 보정표 없으면 안 사고, 있
   assert.ok(s.total_odds >= 2.0 && s.total_odds <= 3.5 && s.model_prob >= 0.28 && s.ev >= 0.78);
 });
 
-test('planBotBets v3: 국내포함 슬립은 회차 예산 20%(2만원)까지만, 이미 산 국내포함 금액을 뺀다', () => {
-  const gs = Array.from({ length: 8 }, (_, i) => (i % 2 ? dg(1.31, 2.59) : dg(1.8, 1.8)));
+test('planBotBets: 국내포함 슬립은 회차 예산 40%(4만원, v4)까지만, 이미 산 국내포함 금액을 뺀다', () => {
+  const gs = Array.from({ length: 12 }, (_, i) => (i % 2 ? dg(1.31, 2.59) : dg(1.8, 1.8)));
   const out = planBotBets(gs, { now: NOW, domesticCal: flatCal });
-  assert.equal(out.bets.reduce((a, b) => a + b.stake, 0), 20000);
+  assert.equal(out.bets.reduce((a, b) => a + b.stake, 0), 40000);
   const prev = [{ stake: 10000, reason: '국내포함 · 기본 · 2폴', legs: [] }];
-  assert.equal(planBotBets(gs, { now: NOW, domesticCal: flatCal, prevBets: prev }).bets.length, 1);
+  assert.equal(planBotBets(gs, { now: NOW, domesticCal: flatCal, prevBets: prev }).bets.length, 3);
 });
 
 test('planBotBets v3: onlyGameIds로 후보를 요청 경기로 한정', () => {

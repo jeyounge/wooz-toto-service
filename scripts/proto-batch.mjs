@@ -13,6 +13,7 @@ import { classifyPred, rawScoreOf, verdictOf } from '../src/lib/proto/retro.js';
 import { isFirstHalf } from '../src/lib/proto/accuracy.js';
 import { planBotBets, BOT_ID } from '../src/lib/proto/bot.js';
 import { buildDomesticCal } from '../src/lib/proto/domesticCal.js';
+import { harmonizePicks } from '../src/lib/proto/consistency.js';
 import { TABLES } from '../src/lib/tables.js';
 
 const env = {};
@@ -94,8 +95,9 @@ async function processRound(gmTs, saleEndTs) {
       ext = await matchExternal(base);
       extCount = ext.size;
     }
-    for (const r of upcoming) {
-      const p = predictGame(r, isFirstHalf(r) ? null : ext.get(key(r)) || null);
+    const items = upcoming.map((r) => ({ g: r, p: predictGame(r, isFirstHalf(r) ? null : ext.get(key(r)) || null) }));
+    // 같은 경기 승무패·핸디 픽이 서로 모순되지 않게 (consistency.js)
+    for (const { g: r, p } of harmonizePicks(items)) {
       if (!p || !idOf.get(r.match_seq)) continue;
       preds.push({ game_id: idOf.get(r.match_seq), ...p, created_ts: stamp });
     }
@@ -130,7 +132,7 @@ async function processRound(gmTs, saleEndTs) {
 async function botRound(roundId, gmTs, gameRows, idOf, preds) {
   const { data: prevBets, error } = await db.from(TABLES.protoBotBets)
     .select(`stake, total_odds, reason, legs:${TABLES.protoBotBetLegs}(pick_idx, odds, game:${TABLES.protoGames}(home, away, game_ts, result_idx))`)
-    .eq('round_id', roundId).eq('bot', BOT_ID);
+    .eq('round_id', roundId); // 버전 무관 — 회차 예산·중복은 모든 Claude 슬립 기준
   if (error) throw new Error(error.message);
   const predOf = new Map(preds.map((p) => [p.game_id, p]));
   // 회차 전 게임(예산 풀림 비율 계산용). 예측 없는 게임은 후보에서 자동 제외된다.
@@ -150,7 +152,8 @@ async function botRound(roundId, gmTs, gameRows, idOf, preds) {
     if (e2) { await db.from(TABLES.protoBotBets).delete().eq('id', bet.id); throw new Error(e2.message); }
   }
   const total = plan.spent + plan.bets.reduce((a, s) => a + s.stake, 0);
-  log(`   ${gmTs} Claude 배팅 [${plan.mode}] ${plan.bets.length}장 신규 · 누적 ${total.toLocaleString('ko-KR')}원 / 현재 상한 ${plan.cap.toLocaleString('ko-KR')}원`);
+  if (plan.closed) { log(`   ${gmTs} Claude 배팅: 구매 시간 아님(23~06시) · 누적 ${plan.spent.toLocaleString('ko-KR')}원`); return; }
+  log(`   ${gmTs} Claude 배팅 [${plan.mode}${plan.lastCall ? '·마감 소진' : ''}] ${plan.bets.length}장 신규 · 누적 ${total.toLocaleString('ko-KR')}원 / 현재 상한 ${plan.cap.toLocaleString('ko-KR')}원`);
 }
 
 /** 국내배당 보정표: DB의 결과 확정 게임 전체(배당 구간 → 실제 적중률). 배치당 한 번만 읽는다. */
