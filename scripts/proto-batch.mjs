@@ -2,7 +2,8 @@
 // 사용: node scripts/proto-batch.mjs [gmTs...]
 //   인자 없으면: 발매 중 회차 + 결과 대기 경기가 남은 최근 회차를 자동 처리.
 //   PREDICT=0 이면 예측 갱신 생략, NOESPN=1 이면 해외 배당·경기 기록 생략, RETRO=0 이면 복기 생략, BOT=0 이면 Claude 배팅 생략.
-//   BOT_LEAGUE=남농월예 / BOT_UNTIL=2026-11-27T15:00+09:00 을 주면 이번 배치의 Claude 배팅 후보를 그 리그(league_short)·킥오프 시각까지로 한정한다(요청 경기만 살 때).
+//   BOT_LEAGUE=남농월예 / BOT_SPORT=SC / BOT_UNTIL=2026-11-27T15:00+09:00 을 주면 이번 배치의 Claude 배팅 후보를 그 리그(league_short)·종목(sport_code)·킥오프 시각까지로 한정한다(요청 경기만 살 때).
+//   BOT_POOL=offline|online 이면 그 칸만 산다(기본 둘 다. 오프라인 칸은 금·토·일만 열림). BOT_DRY=1 이면 살 슬립을 로그로만 보여 주고 저장하지 않는다.
 // 원칙: 예측은 킥오프 전까지만 갱신하고 킥오프 후에는 동결 → 적중률이 사후 보정 없이 기록된다.
 import { readFileSync, appendFileSync, mkdirSync } from 'fs';
 import { createClient } from '@supabase/supabase-js';
@@ -11,7 +12,7 @@ import { predictGame, devig, isHit, MODEL_VERSION } from '../src/lib/proto/predi
 import { matchExternal, matchEspnFinals, fetchMatchContext } from '../src/lib/proto/espn.js';
 import { classifyPred, rawScoreOf, verdictOf } from '../src/lib/proto/retro.js';
 import { isFirstHalf } from '../src/lib/proto/accuracy.js';
-import { planBotBets, BOT_ID } from '../src/lib/proto/bot.js';
+import { planBotBets, isOfflineBet, BOT_ID } from '../src/lib/proto/bot.js';
 import { buildDomesticCal } from '../src/lib/proto/domesticCal.js';
 import { harmonizePicks } from '../src/lib/proto/consistency.js';
 import { TABLES } from '../src/lib/tables.js';
@@ -139,11 +140,14 @@ async function botRound(roundId, gmTs, gameRows, idOf, preds) {
   const games = gameRows.map((r) => ({ ...r, id: idOf.get(r.match_seq), pred: predOf.get(idOf.get(r.match_seq)) || null })).filter((g) => g.id);
   const domesticCal = await loadDomesticCal();
   const until = process.env.BOT_UNTIL ? new Date(process.env.BOT_UNTIL).getTime() : Infinity;
-  const only = process.env.BOT_LEAGUE || process.env.BOT_UNTIL
-    ? new Set(games.filter((g) => (!process.env.BOT_LEAGUE || g.league_short === process.env.BOT_LEAGUE) && new Date(g.game_ts).getTime() <= until).map((g) => g.id))
+  const { BOT_LEAGUE, BOT_SPORT, BOT_UNTIL, BOT_POOL } = process.env;
+  const only = BOT_LEAGUE || BOT_SPORT || BOT_UNTIL
+    ? new Set(games.filter((g) => (!BOT_LEAGUE || g.league_short === BOT_LEAGUE) && (!BOT_SPORT || g.sport_code === BOT_SPORT)
+      && new Date(g.game_ts).getTime() <= until).map((g) => g.id))
     : null;
-  const plan = planBotBets(games, { now, prevBets: prevBets || [], domesticCal, onlyGameIds: only });
-  for (const s of plan.bets) {
+  const pools = BOT_POOL ? BOT_POOL.split(',') : undefined;
+  const plan = planBotBets(games, { now, prevBets: prevBets || [], domesticCal, onlyGameIds: only, pools });
+  for (const s of process.env.BOT_DRY === '1' ? [] : plan.bets) {
     const { data: bet, error: e1 } = await db.from(TABLES.protoBotBets)
       .insert({ bot: BOT_ID, round_id: roundId, stake: s.stake, total_odds: s.total_odds, model_prob: s.model_prob, reason: s.reason })
       .select('id').single();
@@ -151,9 +155,21 @@ async function botRound(roundId, gmTs, gameRows, idOf, preds) {
     const { error: e2 } = await db.from(TABLES.protoBotBetLegs).insert(s.legs.map((l) => ({ bet_id: bet.id, ...l })));
     if (e2) { await db.from(TABLES.protoBotBets).delete().eq('id', bet.id); throw new Error(e2.message); }
   }
-  const total = plan.spent + plan.bets.reduce((a, s) => a + s.stake, 0);
+  const total = plan.spent + plan.bets.filter((s) => !isOfflineBet(s)).reduce((a, s) => a + s.stake, 0);
   if (plan.closed) { log(`   ${gmTs} Claude 배팅: 구매 시간 아님(23~06시) · 누적 ${plan.spent.toLocaleString('ko-KR')}원`); return; }
-  log(`   ${gmTs} Claude 배팅 [${plan.mode}${plan.lastCall ? '·마감 소진' : ''}] ${plan.bets.length}장 신규 · 누적 ${total.toLocaleString('ko-KR')}원 / 현재 상한 ${plan.cap.toLocaleString('ko-KR')}원`);
+  const won = (x) => `${x.toLocaleString('ko-KR')}원`;
+  const nOff = plan.bets.filter(isOfflineBet).length;
+  log(`   ${gmTs} Claude 배팅 [${plan.mode}${plan.lastCall ? '·마감 소진' : ''}] 온라인 ${plan.bets.length - nOff}장 신규 · 누적 ${won(total)} / 현재 상한 ${won(plan.cap)}`
+    + (plan.weekend ? ` | 주말 오프라인 ${nOff}장 신규 · 누적 ${won(plan.offline.spent)} / 현재 상한 ${won(plan.offline.cap)}` : ''));
+  const gOf = new Map(games.map((g) => [g.id, g]));
+  const kst = (t) => new Date(new Date(t).getTime() + 9 * 3600e3).toISOString().slice(5, 16).replace('T', ' ');
+  for (const s of plan.bets) {
+    log(`     ${s.stake.toLocaleString('ko-KR')}원 ${s.total_odds}배 · ${s.reason}`);
+    for (const l of s.legs) {
+      const g = gOf.get(l.game_id);
+      log(`       - ${kst(g.game_ts)} ${g.league_short} ${g.home} vs ${g.away} ${g.bet_name || ''}${g.handi ? ` ${g.handi}` : ''} → ${[g.txt_w, g.txt_d, g.txt_l][l.pick_idx] || l.pick_idx} ${l.odds} (${Math.round(l.model_prob * 100)}%)`);
+    }
+  }
 }
 
 /** 국내배당 보정표: DB의 결과 확정 게임 전체(배당 구간 → 실제 적중률). 배치당 한 번만 읽는다. */

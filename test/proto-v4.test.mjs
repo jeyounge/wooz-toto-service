@@ -105,5 +105,6 @@ test('planBotBets v4: 마감 소진 때 press 모드로 못 채우면 기본 모
   assert.equal(out.bets.length, 1);
   assert.ok(out.bets[0].reason.includes('기본'));
   const day = kst('2026-11-27T15:00:00');
-  assert.equal(planBotBets([g(1.7, 0.56, day), g(1.75, 0.55, day)], { now: day, prevBets: prev }).bets.length, 0); // 평소엔 press 그대로
+  // 평소엔 press 그대로 (금요일이라 열리는 v5 주말 오프라인 칸은 빼고 본다)
+  assert.equal(planBotBets([g(1.7, 0.56, day), g(1.75, 0.55, day)], { now: day, prevBets: prev, pools: ['online'] }).bets.length, 0);
 });

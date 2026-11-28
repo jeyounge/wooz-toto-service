@@ -34,13 +34,22 @@
  *     무가 낀 슬립은 기본 모드에서 배당 5.0·확률 18%까지 허용(EV 기준은 같음). 확률 우선 모드(press/safe)는 그대로.
  *  9) 국내포함 칸 회차 예산 20% → 40%.
  *  10) 예산·중복은 버전과 무관하게 이 회차의 모든 Claude 슬립으로 센다(버전을 올려도 예산이 다시 풀리지 않게).
+ *
+ * 규칙 v5 (2026-11-28, 사용자 요청: 주말은 10만원 + 10만원, 넘는 10만원은 '오프라인 구매'로 표시, 배당·금액을 올려서)
+ *  11) 금·토·일(KST 구매 시각 기준)에는 회차마다 오프라인 칸 10만원이 따로 열린다. 베트맨 온라인은 회차 10만원 한도라
+ *      넘는 몫은 판매점(오프라인) 구매로 본다. reason 앞머리 '오프라인 구매'로 구분(스키마 변경 없음).
+ *  12) 온라인 칸은 v4 규칙 그대로(예산·모드·국내포함 칸은 온라인 슬립만으로 센다). 오프라인 칸은 고정 규칙:
+ *      3만원 · 조합 배당 3.0~6.0 · 적중확률 ≥ 17% · EV ≥ 0.88(마감 소진 0.82) · 해외 확률 레그만(국내 레그 EV ≈ 0.87~0.90은
+ *      금액을 올리기엔 정보가 약함) · 무 레그 허용. 예산 풀림은 온라인과 같은 비율. 경기 중복은 두 칸을 합쳐 막는다.
+ *  ※ 배당을 올려도 레그 EV가 같으면 기대 회수율은 그대로고 적중률만 내려간다(분산↑). 적중률이 좋았던 건 표본 10장 남짓이라 운 몫이 크다.
  */
 import { comboCandidates } from './combos.js';
 import { comboOdds, settleBet } from './bets.js';
 
 const DOM_TAG = '국내포함';
+const OFF_TAG = '오프라인 구매';
 
-export const BOT_ID = 'claude-v4';
+export const BOT_ID = 'claude-v5';
 export const BOT_POLICY = Object.freeze({
   budget: 100000,   // 회차 예산(원)
   step: 10000,      // 금액 단위(원)
@@ -59,6 +68,8 @@ export const BOT_POLICY = Object.freeze({
   draw: { legMinProb: 0.22, oddsMax: 5.0, minProb: 0.18 }, // 무 레그·무 포함 슬립 (기본 모드만)
   buyHours: { open: 6, close: 23, lastCall: 22 }, // KST. close 이후 ~ open 전에는 안 산다. lastCall 시(時)는 마감 소진
   lastCall: { minEv: 0.80, domMinEv: 0.70 },
+  // 주말(금·토·일 KST에 사는 슬립) 오프라인 칸: 온라인 10만원과 별도로 +10만원. 배당·금액을 올린다
+  weekend: { days: [5, 6, 0], budget: 100000, stake: 30000, oddsMin: 3.0, oddsMax: 6.0, minProb: 0.17, minEv: 0.88, lastCallMinEv: 0.82, label: '주말 고배당' },
   modes: {
     normal: { label: '기본', stake: 20000, oddsMin: 2.0, oddsMax: 3.5, minProb: 0.28 },
     press: { label: '적중 후 저배당 증액', stake: 30000, oddsMin: 1.8, oddsMax: 2.6, minProb: 0.38 },
@@ -99,53 +110,56 @@ export function buyWindow(now = Date.now(), policy = BOT_POLICY) {
   return { open: h >= B.open && h < B.close, lastCall: h === B.lastCall };
 }
 
+/** 주말 오프라인 칸 슬립인지 (reason 앞머리로 구분 — 스키마 변경 없음) */
+export const isOfflineBet = (b) => String(b?.reason || '').startsWith(OFF_TAG);
+
+/** 구매 시각(KST)이 주말 오프라인 칸이 열리는 요일(금·토·일)인지 */
+export function isWeekendBuy(now = Date.now(), policy = BOT_POLICY) {
+  return (policy.weekend?.days || []).includes(new Date(now + 9 * 3600e3).getUTCDay());
+}
+
 /**
  * 이번 배치에서 살 슬립.
  * @param {Array} games 회차 전체 proto_games 행 + pred({p_w,p_d,p_l,prob_source})
- * @param {{now?:number, prevBets?:Array, policy?:object}} opts prevBets = 이 회차에 이미 산 Claude 슬립(레그·게임 포함)
- * @returns {{mode:string, cap:number, spent:number, closed:boolean, lastCall:boolean, bets:Array<{stake, total_odds, model_prob, ev, reason, legs}>}}
+ * @param {{now?:number, prevBets?:Array, policy?:object, pools?:string[]}} opts prevBets = 이 회차에 이미 산 Claude 슬립(레그·게임 포함)
+ *   pools = 이번에 살 칸 ['online','offline'] (기본 둘 다. 사용자 요청으로 오프라인 칸만 돌릴 때 ['offline'])
+ * @returns {{mode, cap, spent, closed, lastCall, weekend, offline:{cap, spent}, bets:Array<{stake, total_odds, model_prob, ev, reason, legs}>}}
  */
-export function planBotBets(games, { now = Date.now(), prevBets = [], policy = BOT_POLICY, domesticCal = null, onlyGameIds = null } = {}) {
+export function planBotBets(games, { now = Date.now(), prevBets = [], policy = BOT_POLICY, domesticCal = null, onlyGameIds = null, pools = ['online', 'offline'] } = {}) {
   const P = { ...BOT_POLICY, ...policy };
-  const mode = botMode(prevBets);
-  const spent = prevBets.reduce((a, b) => a + Number(b.stake), 0);
+  const W = P.weekend;
+  const sum = (bs) => bs.reduce((a, b) => a + Number(b.stake), 0);
+  const onBets = prevBets.filter((b) => !isOfflineBet(b)), offBets = prevBets.filter(isOfflineBet);
+  const mode = botMode(onBets); // 온라인 칸 모드는 온라인 슬립 결과로만
+  const spent = sum(onBets);
   const cap = Math.min(spendCap(games, { now, policy: P }), P.budget);
   const used = new Set(prevBets.flatMap((b) => (b.legs || []).map((l) => l.game && matchKeyOf(l.game)).filter(Boolean)));
-  const domSpent = prevBets.filter((b) => String(b.reason || '').startsWith(DOM_TAG)).reduce((a, b) => a + Number(b.stake), 0);
+  const domSpent = onBets.filter((b) => String(b.reason || '').startsWith(DOM_TAG)).reduce((a, b) => a + Number(b.stake), 0);
   const win = buyWindow(now, P);
-  const out = { mode, cap, spent, closed: !win.open, lastCall: win.lastCall, bets: [] };
-  let room = cap - spent;
-  let domRoom = Math.floor((P.budget * P.domestic.capShare) / P.step) * P.step - domSpent;
-  if (!win.open || room < P.step) return out;
-  const minEv = win.lastCall ? P.lastCall.minEv : P.minEv;
-  const domMinEv = win.lastCall ? P.lastCall.domMinEv : P.domestic.minEv;
+  const weekend = !!W && isWeekendBuy(now, P);
+  const offCap = weekend ? Math.min(spendCap(games, { now, policy: { ...P, budget: W.budget } }), W.budget) : 0;
+  const offSpent = sum(offBets);
+  const out = { mode, cap, spent, closed: !win.open, lastCall: win.lastCall, weekend, offline: { cap: offCap, spent: offSpent }, bets: [] };
+  if (!win.open) return out;
   const horizon = now + P.horizonH * 3600e3;
   const near = games.filter((g) => g.game_ts && new Date(g.game_ts).getTime() <= horizon && !used.has(matchKeyOf(g))
     && (!onlyGameIds || onlyGameIds.has(g.id)));
 
-  // 마감 소진(22시)인데 현재 모드(press/safe)로 못 채우면 기본 모드 범위로 한 번 더 — 회차 예산을 남기지 않게
-  const passes = win.lastCall && mode !== 'normal' ? [mode, 'normal'] : [mode];
-  for (const pm of passes) {
-    if (room < P.step) break;
-    const M = P.modes[pm];
-    const drawOk = pm === 'normal';
+  /** 지금 남은 경기로 레그 후보 → 2·3폴 슬립 전부 (accept가 걸러서 모양을 정한다) → 정렬 */
+  const slipsFor = ({ drawOk, withDomestic, accept }) => {
     const lead = { now: now + P.minLeadMin * 60e3, minEv: P.legMinEv, minProb: P.legMinProb, drawMinProb: drawOk ? P.draw.legMinProb : P.legMinProb };
     const pool = near.filter((g) => !used.has(matchKeyOf(g)));
     const cands = [
       ...comboCandidates(pool, { ...lead, perMatch: P.perMatch }).slice(0, P.maxCands),
-      ...(domesticCal ? comboCandidates(pool.filter((g) => g.pred?.prob_source === 'domestic'), { ...lead, domesticCal, perMatch: P.domPerMatch }).slice(0, P.domMaxCands) : []),
+      ...(withDomestic && domesticCal ? comboCandidates(pool.filter((g) => g.pred?.prob_source === 'domestic'), { ...lead, domesticCal, perMatch: P.domPerMatch }).slice(0, P.domMaxCands) : []),
     ];
-
     const slips = [];
     const consider = (legs) => {
       if (new Set(legs.map((l) => matchKeyOf(l.game))).size < legs.length) return; // 같은 경기 다른 마켓끼리는 못 묶는다
       const odds = comboOdds(legs.map((l) => l.odds));
-      const draw = drawOk && legs.some((l) => l.pick_idx === 1);
-      if (odds < M.oddsMin || odds > (draw ? Math.max(M.oddsMax, P.draw.oddsMax) : M.oddsMax)) return;
       const prob = legs.reduce((a, l) => a * l.prob, 1);
-      const ev = odds * prob;
-      const domestic = legs.some((l) => l.domestic);
-      if (prob >= (draw ? Math.min(M.minProb, P.draw.minProb) : M.minProb) && ev >= (domestic ? domMinEv : minEv)) slips.push({ legs, odds, prob, ev, domestic, draw });
+      const s = { legs, odds, prob, ev: odds * prob, domestic: legs.some((l) => l.domestic), draw: drawOk && legs.some((l) => l.pick_idx === 1) };
+      if (accept(s)) slips.push(s);
     };
     const n = cands.length;
     for (let i = 0; i < n; i++) {
@@ -155,30 +169,75 @@ export function planBotBets(games, { now = Date.now(), prevBets = [], policy = B
       }
     }
     // 해외 확률만으로 된 슬립 먼저, 그다음 국내포함. 각각 기대 회수율 우선, 근소하면(0.005) 적중확률 높은 쪽
-    slips.sort((a, b) => (a.domestic !== b.domestic ? (a.domestic ? 1 : -1)
+    return slips.sort((a, b) => (a.domestic !== b.domestic ? (a.domestic ? 1 : -1)
       : Math.abs(b.ev - a.ev) > 0.005 ? b.ev - a.ev : b.prob - a.prob));
-
+  };
+  /** 정렬된 슬립을 room 안에서 산다. stakeOf(s, room) → 금액(0이면 건너뜀, null이면 중단), onBuy(s, stake)는 산 뒤 */
+  const buy = (slips, room, stakeOf, reasonOf, onBuy = null) => {
     for (const s of slips) {
-      const limit = s.domestic ? Math.min(room, domRoom) : room;
-      const stake = Math.min(s.domestic ? P.domestic.stake : M.stake, Math.floor(limit / P.step) * P.step);
-      if (stake < P.step) { if (s.domestic) continue; break; }
+      if (room < P.step) break;
+      const stake = stakeOf(s, room);
+      if (stake == null) break;
+      if (stake < P.step) continue;
       const keys = s.legs.map((l) => matchKeyOf(l.game));
       if (keys.some((k) => used.has(k))) continue;
       keys.forEach((k) => used.add(k));
       room -= stake;
-      if (s.domestic) domRoom -= stake;
+      onBuy?.(s, stake);
       out.bets.push({
         stake,
         total_odds: s.odds,
         model_prob: s.prob,
         ev: s.ev,
-        reason: `${s.domestic ? `${DOM_TAG} · ` : ''}${win.lastCall ? '마감 소진 · ' : ''}${s.draw ? '무 포함 · ' : ''}${M.label} · ${s.legs.length}폴 · EV ${s.ev.toFixed(3)} · 확률 ${Math.round(s.prob * 100)}% · ${BOT_ID}`,
+        reason: `${reasonOf(s)} · ${s.legs.length}폴 · EV ${s.ev.toFixed(3)} · 확률 ${Math.round(s.prob * 100)}% · ${BOT_ID}`,
         legs: s.legs.map((l) => ({ game_id: l.game.id, pick_idx: l.pick_idx, odds: l.odds, model_prob: l.prob })),
       });
     }
+    return room;
+  };
+
+  // ---- 온라인 칸 (회차 10만원, v2~v4 규칙 그대로) ----
+  let room = cap - spent;
+  let domRoom = Math.floor((P.budget * P.domestic.capShare) / P.step) * P.step - domSpent;
+  if (pools.includes('online') && room >= P.step) {
+    const minEv = win.lastCall ? P.lastCall.minEv : P.minEv;
+    const domMinEv = win.lastCall ? P.lastCall.domMinEv : P.domestic.minEv;
+    // 마감 소진(22시)인데 현재 모드(press/safe)로 못 채우면 기본 모드 범위로 한 번 더 — 회차 예산을 남기지 않게
+    const passes = win.lastCall && mode !== 'normal' ? [mode, 'normal'] : [mode];
+    for (const pm of passes) {
+      if (room < P.step) break;
+      const M = P.modes[pm];
+      const drawOk = pm === 'normal';
+      const slips = slipsFor({
+        drawOk,
+        withDomestic: true,
+        accept: (s) => s.odds >= M.oddsMin && s.odds <= (s.draw ? Math.max(M.oddsMax, P.draw.oddsMax) : M.oddsMax)
+          && s.prob >= (s.draw ? Math.min(M.minProb, P.draw.minProb) : M.minProb) && s.ev >= (s.domestic ? domMinEv : minEv),
+      });
+      room = buy(slips, room, (s, r) => {
+        const limit = s.domestic ? Math.min(r, domRoom) : r;
+        const stake = Math.min(s.domestic ? P.domestic.stake : M.stake, Math.floor(limit / P.step) * P.step);
+        return stake < P.step ? (s.domestic ? 0 : null) : stake;
+      }, (s) => `${s.domestic ? `${DOM_TAG} · ` : ''}${win.lastCall ? '마감 소진 · ' : ''}${s.draw ? '무 포함 · ' : ''}${M.label}`,
+      (s, stake) => { if (s.domestic) domRoom -= stake; });
+    }
   }
+
+  // ---- 주말 오프라인 칸 (금·토·일 +10만원: 배당·금액을 올린 슬립, 해외 확률만) ----
+  const offRoom = offCap - offSpent;
+  if (weekend && pools.includes('offline') && offRoom >= P.step) {
+    const minEv = win.lastCall ? W.lastCallMinEv : W.minEv;
+    const slips = slipsFor({
+      drawOk: true,
+      withDomestic: false,
+      accept: (s) => !s.domestic && s.odds >= W.oddsMin && s.odds <= W.oddsMax && s.prob >= W.minProb && s.ev >= minEv,
+    });
+    buy(slips, offRoom, (s, r) => Math.min(W.stake, Math.floor(r / P.step) * P.step),
+      (s) => `${OFF_TAG} · ${win.lastCall ? '마감 소진 · ' : ''}${s.draw ? '무 포함 · ' : ''}${W.label}`);
+  }
+  out.offline.spent = offSpent + out.bets.filter(isOfflineBet).reduce((a, b) => a + b.stake, 0);
   return out;
 }
 
 /** 화면 안내용 규칙 요약 (UI와 규칙을 한 곳에서 관리) */
-export const BOT_RULES_TEXT = `회차당 10만원을 회차 진행에 맞춰 나눠 씁니다(24시간 안에 시작하는 게임 비율만큼 예산이 풀림). 베트맨처럼 매일 23시까지만 사고, 22시 배치에서 그때까지 풀린 예산을 기준을 조금 낮춰 채웁니다. 2·3폴만 사고(단폴 없음), 해외 확률 슬립은 기대 회수율 ${BOT_POLICY.minEv} 이상만 삽니다. 해외 배당이 없는 게임은 국내배당을 우리 기록(배당 구간별 실제 적중률)으로 보정해 '국내포함' 슬립으로 1만원씩, 회차 예산의 ${Math.round(BOT_POLICY.domestic.capShare * 100)}%까지만 삽니다. 무는 확률 22%부터 후보로 보고, 무가 끼면 배당 5배까지 삽니다. 직전 슬립이 적중하면 저배당(1.8~2.6)에 3만원으로 늘리고, 낙첨하면 적중확률 42% 이상인 슬립만 삽니다. 실제 구매가 아닌 모의 기록입니다.`;
+export const BOT_RULES_TEXT = `회차당 10만원을 회차 진행에 맞춰 나눠 씁니다(24시간 안에 시작하는 게임 비율만큼 예산이 풀림). 베트맨처럼 매일 23시까지만 사고, 22시 배치에서 그때까지 풀린 예산을 기준을 조금 낮춰 채웁니다. 2·3폴만 사고(단폴 없음), 해외 확률 슬립은 기대 회수율 ${BOT_POLICY.minEv} 이상만 삽니다. 해외 배당이 없는 게임은 국내배당을 우리 기록(배당 구간별 실제 적중률)으로 보정해 '국내포함' 슬립으로 1만원씩, 회차 예산의 ${Math.round(BOT_POLICY.domestic.capShare * 100)}%까지만 삽니다. 무는 확률 22%부터 후보로 보고, 무가 끼면 배당 5배까지 삽니다. 직전 슬립이 적중하면 저배당(1.8~2.6)에 3만원으로 늘리고, 낙첨하면 적중확률 42% 이상인 슬립만 삽니다. 주말(금·토·일)에는 온라인 10만원과 별도로 '오프라인 구매' 10만원을 더 씁니다: ${BOT_POLICY.weekend.stake / 10000}만원씩, 조합 배당 ${BOT_POLICY.weekend.oddsMin.toFixed(1)}~${BOT_POLICY.weekend.oddsMax.toFixed(1)}배, 해외 확률 게임만. 실제 구매가 아닌 모의 기록입니다.`;
